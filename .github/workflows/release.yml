@@ -1,0 +1,41 @@
+name: release
+# A release is cut whenever `main` carries a version (engine/pyproject.toml) that has no tag yet: this
+# job checks that every file agrees on the version and that the notes are written, creates the tag
+# and the GitHub release from docs/releases/vX.Y.Z.md, then builds and attaches the Windows installer.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      created: ${{ steps.check.outputs.exists == 'false' }}
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        run: echo "version=$(grep -m1 '^version' engine/pyproject.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+      - id: check
+        run: |
+          if git rev-parse "v${{ steps.v.outputs.version }}" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Versions agree, changelog and notes are ready
+        if: steps.check.outputs.exists == 'false'
+        run: node scripts/release.mjs check "${{ steps.v.outputs.version }}"
+      - if: steps.check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.v.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: RecPro v${{ steps.v.outputs.version }}
+          body_path: docs/releases/v${{ steps.v.outputs.version }}.md
+  desktop:
+    needs: release
+    if: needs.release.outputs.created == 'true'
+    uses: ./.github/workflows/desktop.yml
+    with:
+      release_tag: v${{ needs.release.outputs.version }}

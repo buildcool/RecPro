@@ -1,18 +1,79 @@
 {
-  "name": "@recpro/desktop",
+  "name": "recpro-desktop",
+  "productName": "RecPro",
   "private": true,
   "version": "0.1.0",
-  "description": "RecPro desktop shell (Electron).",
+  "description": "RecPro: private, offline photo and video organizer",
   "main": "dist/main.js",
+  "author": {
+    "name": "buildcool",
+    "email": "331665223+buildcool@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/buildcool/RecPro",
+  "license": "UNLICENSED",
   "scripts": {
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node test/updater-check.cjs",
+    "dist": "electron-builder --win nsis --publish never",
+    "dist:dir": "electron-builder --win dir --publish never"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "electron": "^41.7.1",
+    "electron": "41.7.1",
+    "electron-builder": "26.18.0",
+    "electron-updater": "6.8.11",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
+  },
+  "build": {
+    "appId": "com.buildcool.recpro",
+    "productName": "RecPro",
+    "executableName": "RecPro",
+    "artifactName": "RecPro-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist/**/*",
+      "!dist/**/*.map",
+      "!dist/test/**",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../ui/dist",
+        "to": "ui"
+      },
+      {
+        "from": "../dist/recpro-engine",
+        "to": "engine"
+      }
+    ],
+    "asar": true,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "buildcool",
+        "repo": "RecPro",
+        "releaseType": "release"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "RecPro"
+    }
   }
 }

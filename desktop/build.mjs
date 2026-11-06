@@ -15,6 +15,8 @@ const common = {
 const entries = [
   { ...common, entryPoints: ['src/main.ts'], outfile: 'dist/main.js' },
   { ...common, entryPoints: ['src/preload.ts'], outfile: 'dist/preload.js' },
+  // the updater on its own, for test/updater-check.cjs (not packaged)
+  { ...common, entryPoints: ['src/updater.ts'], outfile: 'dist/test/updater.js', external: ['electron', 'electron-updater'] },
 ];
 
 if (watch) {

@@ -28,4 +28,17 @@ contextBridge.exposeInMainWorld('recpro', {
     ipcRenderer.on('engine-restarted', h);
     return () => ipcRenderer.removeListener('engine-restarted', h);
   },
+  updates: {
+    get: () => ipcRenderer.invoke('updates:get'),
+    check: () => ipcRenderer.invoke('updates:check'),
+    setMode: (mode: string) => ipcRenderer.invoke('updates:mode', mode),
+    download: () => ipcRenderer.invoke('updates:download'),
+    install: () => ipcRenderer.invoke('updates:install'),
+    openPage: () => ipcRenderer.invoke('updates:page'),
+    onState: (cb: (s: unknown) => void) => {
+      const h = (_e: unknown, s: unknown) => cb(s);
+      ipcRenderer.on('updates:state', h);
+      return () => ipcRenderer.removeListener('updates:state', h);
+    },
+  },
 });

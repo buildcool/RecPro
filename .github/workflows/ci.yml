@@ -1,0 +1,35 @@
+name: ci
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+jobs:
+  engine:
+    # RecPro is a Windows app: the engine's tests run where it runs
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install (without the 1.7 GB of CUDA libraries; the tests don't need a GPU)
+        working-directory: engine
+        run: uv sync --frozen --no-default-groups --group dev
+      - name: Tests
+        working-directory: engine
+        run: uv run --no-sync pytest -q
+  app:
+    runs-on: ubuntu-latest
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check the UI and the desktop shell
+        run: npm run typecheck
+      - name: Build the UI and the desktop shell
+        run: npm run build
+      - name: Desktop updater (version order, settings, Strict offline, page fallback)
+        run: npm test -w desktop

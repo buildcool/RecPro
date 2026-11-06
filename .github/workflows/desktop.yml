@@ -1,0 +1,90 @@
+name: desktop
+# Builds the Windows installer: the frozen engine (PyInstaller, without the CUDA libraries, which the
+# app downloads as its GPU pack) + bundled ffmpeg + the UI + the Electron shell (electron-builder, NSIS).
+# Called by `release` for every new version; runs on `dev` when packaging changes (the installer is
+# then only a build artifact); or by hand.
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: "Attach the installer to this GitHub release (empty = build artifact only)"
+        type: string
+        required: false
+        default: ""
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/desktop.yml
+      - scripts/build_engine.py
+      - scripts/engine_entry.py
+      - scripts/smoke_engine.py
+      - desktop/**
+      - engine/pyproject.toml
+      - engine/uv.lock
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Freeze the engine
+        shell: bash
+        working-directory: engine
+        run: |
+          uv sync --frozen --no-default-groups --group build
+          uv run --no-sync python ../scripts/build_engine.py
+      - name: Bundle ffmpeg (gyan.dev essentials, checksum-verified)
+        shell: pwsh
+        run: |
+          $u = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          Invoke-WebRequest $u -OutFile ff.zip -MaximumRetryCount 5 -RetryIntervalSec 15
+          $want = (Invoke-WebRequest "$u.sha256" -MaximumRetryCount 5 -RetryIntervalSec 15).Content.Trim().Split(" ")[0].ToUpper()
+          $got = (Get-FileHash ff.zip -Algorithm SHA256).Hash.ToUpper()
+          if ($want -ne $got) { throw "ffmpeg checksum mismatch: $got vs $want" }
+          Expand-Archive ff.zip -DestinationPath ff
+          New-Item -ItemType Directory -Force dist/recpro-engine/bin | Out-Null
+          $d = Get-ChildItem ff -Directory | Select-Object -First 1
+          Copy-Item "$($d.FullName)/bin/ffmpeg.exe", "$($d.FullName)/bin/ffprobe.exe" dist/recpro-engine/bin/
+          Copy-Item "$($d.FullName)/LICENSE" dist/recpro-engine/bin/FFMPEG-LICENSE.txt
+      - name: Start the frozen engine the way the app does (piped output, the system code page)
+        shell: bash
+        run: |
+          v=$(grep -m1 '^version' engine/pyproject.toml | cut -d'"' -f2)
+          uv run --no-project --python 3.12 python scripts/smoke_engine.py dist/recpro-engine/recpro-engine.exe "$RUNNER_TEMP/smoke-data" --expect-version "$v" --expect-ffmpeg
+      - name: Build the UI and the desktop shell
+        shell: bash
+        run: |
+          npm ci
+          npm run build
+          npm test -w desktop
+      - name: Package
+        shell: bash
+        working-directory: desktop
+        run: |
+          npx electron-builder --win nsis --publish never
+          ls -la release
+          # the file the app's updater reads
+          grep -q "version: $(node -p "require('./package.json').version")" release/latest.yml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recpro-windows
+          path: |
+            desktop/release/*.exe
+            desktop/release/latest.yml
+            desktop/release/*.blockmap
+          if-no-files-found: error
+      - if: inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: |
+            desktop/release/*.exe
+            desktop/release/latest.yml
+            desktop/release/*.blockmap

@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { startEngine, type EngineHandle } from './engine';
+import * as updates from './updater';
 
 const DEV_URL = process.env.RECPRO_DEV_URL || '';
 const isDev = DEV_URL !== '';
@@ -92,6 +93,18 @@ async function launchEngine(dataDir: string): Promise<EngineHandle> {
       }
     },
   });
+}
+
+/** Strict offline (an engine setting) also stops update checks. */
+async function strictOffline(): Promise<boolean> {
+  if (!engine) return true;
+  try {
+    const res = await net.fetch(engineUrl('api/settings'), { headers: { 'X-RecPro-Token': engine.token } });
+    const s = (await res.json()) as Record<string, unknown>;
+    return s['privacy.strict_offline'] === true;
+  } catch {
+    return true; // can't tell: stay offline
+  }
 }
 
 function engineUrl(p: string): string {
@@ -300,6 +313,7 @@ if (!app.requestSingleInstanceLock()) {
       return;
     }
     createWindow();
+    if (win) updates.init(win, { isOffline: strictOffline, allowed: (e) => fromApp(e) });
     powerMonitor.on('lock-screen', () => win?.webContents.send('system-lock'));
     powerMonitor.on('suspend', () => win?.webContents.send('system-lock'));
   });
