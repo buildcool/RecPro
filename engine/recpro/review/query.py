@@ -37,6 +37,9 @@ SIZE_WORDS = {"alone": (1, 1), "solo": (1, 1), "single": (1, 1), "couple": (2, 2
 KIND_WORDS = {"video": "video", "videos": "video", "clip": "video", "clips": "video",
               "photo": "image", "photos": "image", "picture": "image", "pictures": "image", "pic": "image", "pics": "image", "image": "image", "images": "image"}
 STOP = {"with", "and", "of", "the", "a", "an", "in", "at", "on", "from", "my", "me", "all", "show", "find", "only", "together", "to", "for", "&"}
+# Words split on spaces and punctuation, not on \w: Python's \w skips the vowel signs of Hindi,
+# Marathi and other Indic scripts, which cut "नमस्ते" into "नमस" + "त".
+WORD_RE = re.compile(r"[^\s,.;:!?()\[\]{}\"“”&/+|]+")
 SENSITIVE_WORDS = {"nude", "nudes", "naked", "nudity", "sexy", "sex", "sexual", "porn", "lingerie", "bikini", "romance", "romantic", "kissing", "kiss", "intimate", "private"}
 
 
@@ -69,7 +72,7 @@ def parse(c: Context, q: str) -> dict[str, Any]:
     if "this year" in low:
         out["years"].append(now.year)
         low = low.replace("this year", " ")
-    words = re.findall(r"[\w']+", low)
+    words = WORD_RE.findall(low)
     rest: list[str] = []
     for w in words:
         if w in MONTHS:

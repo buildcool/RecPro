@@ -29,6 +29,11 @@ def test_parse_emotion_and_group_size(ctx):
     assert p["text"] == ""
 
 
+def test_parse_keeps_hindi_words_whole(ctx):
+    p = parse(ctx, "नमस्ते दुनिया, laptop & sofa")
+    assert p["text"] == "नमस्ते दुनिया laptop sofa"
+
+
 def test_category_name_becomes_a_filter(ctx):
     ctx.services["taxonomy"]  # seeds the built-in categories
     p = parse(ctx, "Beach")
