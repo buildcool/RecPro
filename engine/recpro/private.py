@@ -97,6 +97,13 @@ class Private:
                     (lid,),
                     default=0,
                 )
+            if labels.ids_private():  # type: ignore[attr-defined]
+                counts["ids"] = self.db.scalar(
+                    """SELECT COUNT(DISTINCT m.id) FROM media_labels ml JOIN labels l ON l.id=ml.label_id JOIN media m ON m.id=ml.media_id
+                       WHERE l.grp='id' AND m.state='active' AND m.sens_state='private'
+                       AND ml.state != 'rejected' AND (ml.tier='sure' OR ml.state='confirmed')""",
+                    default=0,
+                )
         counts["review"] = self.db.scalar("SELECT COUNT(*) FROM media WHERE state='active' AND sens_state='review'", default=0)
         counts["total"] = self.db.scalar("SELECT COUNT(*) FROM media WHERE state='active' AND sens_state IN ('private','review')", default=0)
         return {

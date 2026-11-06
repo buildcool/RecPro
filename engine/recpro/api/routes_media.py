@@ -26,6 +26,7 @@ def _filters(
     person_id: int | None = None,
     label_id: int | None = None,
     private_only: bool = False,
+    label_grp: str | None = None,
 ) -> tuple[str, list[Any]]:
     where = ["m.state='active'"]
     params: list[Any] = []
@@ -53,6 +54,12 @@ def _filters(
     if label_id is not None:
         where.append("EXISTS (SELECT 1 FROM media_labels ml WHERE ml.media_id=m.id AND ml.label_id=? AND ml.state!='rejected' AND (ml.tier='sure' OR ml.state='confirmed'))")
         params.append(label_id)
+    if label_grp:
+        where.append(
+            "EXISTS (SELECT 1 FROM media_labels ml JOIN labels l ON l.id=ml.label_id WHERE ml.media_id=m.id AND l.grp=?"
+            " AND ml.state!='rejected' AND (ml.tier='sure' OR ml.state='confirmed'))"
+        )
+        params.append(label_grp)
     return " AND ".join(where), params
 
 
@@ -84,10 +91,11 @@ def timeline(
     kind: str | None = None,
     person_id: int | None = None,
     label_id: int | None = None,
+    label_grp: str | None = None,
     private_only: bool = False,
     c: Context = Depends(ctx),
 ) -> dict[str, Any]:
-    where, params = _filters(c, folder_id, rel_dir, kind, person_id, label_id, private_only)
+    where, params = _filters(c, folder_id, rel_dir, kind, person_id, label_id, private_only, label_grp)
     rows = c.db.q(
         f"SELECT {MONTH_SQL} AS ym, COUNT(*) AS n FROM media m WHERE {where} GROUP BY ym ORDER BY ym DESC",
         params,
@@ -104,10 +112,11 @@ def media_month(
     kind: str | None = None,
     person_id: int | None = None,
     label_id: int | None = None,
+    label_grp: str | None = None,
     private_only: bool = False,
     c: Context = Depends(ctx),
 ) -> list[dict[str, Any]]:
-    where, params = _filters(c, folder_id, rel_dir, kind, person_id, label_id, private_only)
+    where, params = _filters(c, folder_id, rel_dir, kind, person_id, label_id, private_only, label_grp)
     if ym == "0000-00":
         where += " AND m.taken_at IS NULL"
     else:
@@ -126,11 +135,12 @@ def media_ids(
     kind: str | None = None,
     person_id: int | None = None,
     label_id: int | None = None,
+    label_grp: str | None = None,
     private_only: bool = False,
     c: Context = Depends(ctx),
 ) -> list[int]:
     """All ids of a view in timeline order (for the viewer and range selection)."""
-    where, params = _filters(c, folder_id, rel_dir, kind, person_id, label_id, private_only)
+    where, params = _filters(c, folder_id, rel_dir, kind, person_id, label_id, private_only, label_grp)
     rows = c.db.q(
         f"SELECT m.id FROM media m WHERE {where} ORDER BY {MONTH_SQL} DESC, m.taken_at DESC, m.id DESC",
         params,

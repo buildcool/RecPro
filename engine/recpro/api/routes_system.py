@@ -46,7 +46,7 @@ def patch_settings(values: dict[str, Any], c: Context = Depends(ctx)) -> dict[st
         raise HTTPException(400, str(e))
     c.events.publish("settings", out)
     labels = c.services.get("labels")
-    if labels is not None and any(k.startswith("sensitivity.") for k in values):
+    if labels is not None and any(k.startswith("sensitivity.") or k == "privacy.ids_private" for k in values):
         labels.on_settings()  # type: ignore[attr-defined]
     if "sensitivity.faces" in values:
         people = c.services.get("people")

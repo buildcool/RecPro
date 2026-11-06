@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .context import Context
+from .ids import ID_NAMES
+from .screens import APP_HAS_PROMPTS, APP_KEY, APP_NAMES
 
 log = logging.getLogger("recpro.labels")
 
@@ -29,6 +31,11 @@ THRESHOLDS: dict[str, dict[str, tuple[float, float]]] = {
     "siglip_strict": {"never_miss": (0.08, 0.45), "balanced": (0.15, 0.45), "fewer": (0.25, 0.40)},
     # your personal classifier for a category (trained on your answers)
     "personal": {"never_miss": (0.30, 0.80), "balanced": (0.40, 0.80), "fewer": (0.50, 0.75)},
+    # rules on text read from the photo: 1.0 when a number's format/checksum and the card's own
+    # words agree, 0.6 when only one of them is there (see ids.py and screens.py)
+    "ocr": {"never_miss": (0.50, 0.90), "balanced": (0.50, 0.90), "fewer": (0.55, 0.90)},
+    # file facts: named like a screenshot (0.9), screen-sized without a camera (0.55-0.75)
+    "file": {"never_miss": (0.50, 0.85), "balanced": (0.55, 0.85), "fewer": (0.65, 0.85)},
 }
 
 STRICT_GROUPS = ("mood", "people", "entertainment")
@@ -102,6 +109,13 @@ SENSITIVE: list[LabelDef] = [
 
 SENSITIVE_KEYS = tuple(d.key for d in SENSITIVE)
 
+# Categories filled from text read in the photo (no prompts: SigLIP doesn't score them)
+TEXT_LABELS: list[LabelDef] = [
+    *(LabelDef(f"id.{k}", name, "id", [], ("ocr",)) for k, name in ID_NAMES.items()),
+    *(LabelDef(APP_KEY[a], name, "screenshot", [], ("ocr",)) for a, name in APP_NAMES.items() if a not in APP_HAS_PROMPTS),
+]
+ID_KEYS = tuple(f"id.{k}" for k in ID_NAMES)
+
 
 class Labels:
     def __init__(self, ctx: Context):
@@ -109,11 +123,15 @@ class Labels:
         self.db = ctx.db
         self._ids: dict[str, int] = {}
         self._lock = threading.Lock()
-        self.seed(SENSITIVE)
+        self.seed(SENSITIVE + TEXT_LABELS)
         self._modes = self._current_modes()
+        self._ids_private = self.ids_private()
 
     def _current_modes(self) -> tuple[str, str]:
         return (str(self.ctx.settings.get("sensitivity.sensitive")), str(self.ctx.settings.get("sensitivity.categories")))
+
+    def ids_private(self) -> bool:
+        return bool(self.ctx.settings.get("privacy.ids_private", False))
 
     def start(self) -> None:
         # thresholds may have changed between versions: re-tier stored scores once at startup
@@ -124,6 +142,17 @@ class Labels:
         if modes != self._modes:
             self._modes = modes
             threading.Thread(target=self.retier, name="labels-retier", daemon=True).start()
+        ids_private = self.ids_private()
+        if ids_private != self._ids_private:
+            self._ids_private = ids_private
+            threading.Thread(target=self.refresh_id_privacy, name="labels-ids", daemon=True).start()
+
+    def refresh_id_privacy(self) -> int:
+        """After "Treat ID documents as private" changes: hide or show every ID document."""
+        ids = [self.id(k) for k in ID_KEYS]
+        mids = [r[0] for r in self.db.q(f"SELECT DISTINCT media_id FROM media_labels WHERE label_id IN ({','.join('?' * len(ids))})", ids)]
+        self.update_sens_state(mids)
+        return len(mids)
 
     def seed(self, defs: list[LabelDef]) -> None:
         with self.db.tx() as c:
@@ -282,26 +311,38 @@ class Labels:
         if not media_ids:
             return {}
         sens_ids = [self.id(k) for k in SENSITIVE_KEYS]
+        # with "Treat ID documents as private" on, an ID document (AI sure or confirmed by you) is
+        # private too; "please check" IDs stay visible and wait in the ID category instead
+        id_ids = set(self.id(k) for k in ID_KEYS) if self.ids_private() else set()
+        watch = [*sens_ids, *id_ids]
         out: dict[int, str] = {}
         changed_private: list[int] = []
         changed_clear: list[int] = []
         for i in range(0, len(media_ids), 900):
             chunk = media_ids[i : i + 900]
             rows = self.db.q(
-                f"""SELECT m.id, m.sens_state, ml.tier, ml.state, ml.score FROM media m
-                    LEFT JOIN media_labels ml ON ml.media_id=m.id AND ml.label_id IN ({','.join('?' * len(sens_ids))})
+                f"""SELECT m.id, m.sens_state, ml.label_id, ml.tier, ml.state, ml.score FROM media m
+                    LEFT JOIN media_labels ml ON ml.media_id=m.id AND ml.label_id IN ({','.join('?' * len(watch))})
                     WHERE m.id IN ({','.join('?' * len(chunk))})""",
-                [*sens_ids, *chunk],
+                [*watch, *chunk],
             )
             per: dict[int, list[Any]] = {}
+            id_doc: set[int] = set()
             prev: dict[int, str] = {}
             for r in rows:
                 prev[r["id"]] = r["sens_state"]
-                if r["tier"] is not None:
+                if r["tier"] is None:
+                    continue
+                if r["label_id"] in id_ids:
+                    if r["state"] == "confirmed" or (r["state"] == "ai" and r["tier"] == "sure"):
+                        id_doc.add(r["id"])
+                else:
                     per.setdefault(r["id"], []).append(r)
             for mid in chunk:
                 labs = per.get(mid, [])
-                if any(l["state"] == "confirmed" for l in labs):
+                if mid in id_doc:
+                    st = "private"
+                elif any(l["state"] == "confirmed" for l in labs):
                     st = "private"
                 elif labs and all(l["state"] == "rejected" for l in labs):
                     st = "clear"

@@ -52,10 +52,11 @@ class Indexer:
         from .quick import QuickStage
         from .semantic import SemanticStage
         from .sens import SensStage
+        from .text import TextStage
 
         # Order = priority: thumbnails first so the gallery fills fast, the private check before
-        # anything is shown unblurred, then faces and understanding.
-        defaults = [QuickStage(self.ctx), SensStage(self.ctx), DeepStage(self.ctx), SemanticStage(self.ctx)]
+        # anything is shown unblurred, then faces, understanding, and reading text.
+        defaults = [QuickStage(self.ctx), SensStage(self.ctx), DeepStage(self.ctx), SemanticStage(self.ctx), TextStage(self.ctx)]
         names = {s.name for s in self.stages}
         for st in reversed(defaults):
             if st.name not in names:

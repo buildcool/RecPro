@@ -211,7 +211,8 @@ GROUPS = [
     ("people", "People"),
     ("object", "Things"),
     ("pet", "Pets and animals"),
-    ("document", "Documents and IDs"),
+    ("id", "ID documents"),
+    ("document", "Documents"),
     ("screenshot", "Screenshots"),
     ("entertainment", "Entertainment"),
     ("custom", "Your categories"),
@@ -368,7 +369,10 @@ class Taxonomy:
                 )
         r = self.db.q1("SELECT key, name, grp, prompts FROM labels WHERE id=?", (label_id,))
         learned = 0
-        if r is not None:
+        if r is not None and r["grp"] == "id":
+            # with "Treat ID documents as private" on, your answer hides or shows the photo
+            self.ctx.services["labels"].update_sens_state([*yes, *no])  # type: ignore[attr-defined]
+        if r is not None and r["prompts"] not in (None, "", "[]"):
             pos = self.db.scalar("SELECT COUNT(*) FROM media_labels WHERE label_id=? AND state='confirmed'", (label_id,), default=0)
             neg = self.db.scalar("SELECT COUNT(*) FROM media_labels WHERE label_id=? AND state='rejected'", (label_id,), default=0)
             if pos >= 8 and neg >= 8:
