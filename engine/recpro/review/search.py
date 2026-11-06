@@ -126,11 +126,22 @@ def search_people(
         return out
 
     per_target = [(key, pid, tier_for(pid, E)) for key, pid, E in targets]
+    # photos where you said the person is, though their face isn't visible
+    for _, pid, d in per_target:
+        if pid is None:
+            continue
+        for r in db.q(
+            f"""SELECT mp.media_id FROM media_people mp JOIN media m ON m.id=mp.media_id
+                WHERE mp.person_id=? AND mp.state='confirmed' AND {where}""",
+            [pid, *params],
+        ):
+            d.setdefault(int(r["media_id"]), ("sure", 1.0, None))  # type: ignore[arg-type]
     # every searched person's face in a media (a video shows when each is on screen)
     matched: dict[int, set[tuple[int, int | None]]] = {}
     for _, pid, d in per_target:
         for mid, (_, _, fid) in d.items():
-            matched.setdefault(mid, set()).add((fid, pid if pid is not None else by_face[fid]["person_id"]))
+            if fid is not None:
+                matched.setdefault(mid, set()).add((fid, pid if pid is not None else by_face[fid]["person_id"]))
     combined: dict[int, dict[str, Any]] = {}
     if mode == "all" and per_target:
         common = set(per_target[0][2])
@@ -158,9 +169,18 @@ def search_people(
         for mid, (tier, _, _) in tier_for(pid, E).items():
             if tier == "sure":
                 combined.pop(mid, None)
+        for r in db.q("SELECT media_id FROM media_people WHERE person_id=? AND state='confirmed'", (pid,)):
+            combined.pop(int(r["media_id"]), None)
 
+    # "Rohit may also be in N photos where his face isn't visible": a pointer to Review
+    hidden_more = 0
+    if len(people_ids) == 1 and not ref_tokens:
+        from ..api.visibility import private_hidden
+        from .hidden import suggestions
+
+        hidden_more = len(suggestions(c, people_ids[0], limit=200, hide_private=private_hidden(c)))
     if not combined:
-        return _empty(scanned, pending, time.time() - t0)
+        return {**_empty(scanned, pending, time.time() - t0), "hidden_more": hidden_more}
 
     mids = list(combined)
     rows: dict[int, Any] = {}
@@ -215,6 +235,7 @@ def search_people(
         "check": check_items,
         "groups": sorted(groups.values(), key=lambda g: g["folder"].lower()),
         "hidden_private": hidden_private,
+        "hidden_more": hidden_more,
         "scanned": scanned,
         "pending": pending,
         "took_ms": int((time.time() - t0) * 1000),

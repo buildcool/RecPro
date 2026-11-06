@@ -223,4 +223,15 @@ MIGRATIONS: list[str] = [
     ALTER TABLE media ADD COLUMN speech_v INTEGER NOT NULL DEFAULT 0;
     CREATE VIRTUAL TABLE speech USING fts5(media_id UNINDEXED, start_ms UNINDEXED, end_ms UNINDEXED, lang UNINDEXED, content, tokenize='trigram');
     """,
+    # v6 — your answers to "Is Rohit in this photo?" when their face isn't visible
+    """
+    CREATE TABLE media_people(
+      media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+      person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+      state TEXT NOT NULL,
+      at REAL NOT NULL,
+      PRIMARY KEY(media_id, person_id)
+    );
+    CREATE INDEX media_people_person ON media_people(person_id, state);
+    """,
 ]
