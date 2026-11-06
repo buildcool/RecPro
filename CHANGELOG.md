@@ -39,7 +39,12 @@ All notable changes to RecPro. Versions follow [Semantic Versioning](https://sem
 - Settings → Text in photos: read Hindi and Marathi too (on by default).
 - Find and move: pick people (any of them, all together, or alone) or use a photo of someone, choose folders and photos/videos, see Sure matches grouped by folder and the doubtful ones to tick, how many private matches are hidden, then copy or move with the safe copy flow. Searching a folder that is still being analyzed processes it first and updates live.
 
+- Windows installer and releases: the engine is frozen (PyInstaller) with ffmpeg and packed with the UI into an NSIS installer; a version pushed to `main` becomes a GitHub release with the installer attached, built and smoke-tested in CI. A test on every push keeps all version numbers in step.
+- GPU pack: the installed app downloads NVIDIA's CUDA and cuDNN libraries once (about 1.2 GB, from NVIDIA's packages on PyPI, checksum-verified) and then runs the AI on the graphics card; without it, on the processor.
+- Updates: Settings → Updates checks RecPro's GitHub releases (*Download for me*, *Ask me first* or *Off*), shows what's new, and installs only when you choose. *Strict offline* stops the checks.
+
 ### Fixed
+- A clean install no longer hangs while preparing photos: SciPy (for the perceptual hash) is loaded at start-up, not first by the quick pass's worker threads, whose load of its BLAS library never finished.
 - New photos no longer land in Private or *Please check* because of a relative score: private content uses SigLIP's absolute probability and NudeNet again (0 of 729 safe photos private, as validated), and stored relative scores are dropped once on upgrade.
 - Documents, chats and bills no longer fill photo categories (a chat about a party as *Party*, a white ID card as *Snow*, a laptop repair invoice as *Laptop*): categories have "it's text" alternatives now.
 - Search keeps Hindi, Marathi and other Indic words whole; their vowel signs used to split them.

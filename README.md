@@ -18,6 +18,10 @@ Nothing leaves your PC. Faces, photos, videos and text are analyzed on this comp
 
 RecPro is being built in milestones. See [docs/ROADMAP.md](docs/ROADMAP.md) for the current state of each one.
 
+## Install
+
+Download `RecPro-X.Y.Z-win-x64.exe` from the [latest release](https://github.com/buildcool/RecPro/releases/latest) and run it (Windows 10/11, 64-bit; it installs for your user, in a folder you choose). On first start RecPro asks for its data folder and downloads its AI models once. On a PC with an NVIDIA graphics card it also offers the GPU pack (about 1.2 GB) so the AI runs on the card. After that it works offline, and it updates itself from GitHub releases (Settings → Updates).
+
 ## Quick start (development)
 
 Requirements: Windows 10/11, [Node.js 20.19+](https://nodejs.org), [uv](https://docs.astral.sh/uv/) (installs Python 3.12 for you), [ffmpeg](https://ffmpeg.org) on `PATH`. An NVIDIA GPU is recommended for recognition but not required.
@@ -38,7 +42,7 @@ More in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 desktop/   Electron shell: window, engine launcher, private media protocol, native dialogs, drag-out
 ui/        React + TypeScript + Vite + Tailwind interface
 engine/    Python engine (FastAPI on 127.0.0.1): library, indexing, AI, search, safe file operations
-scripts/   Dev helpers: launcher, icon generator, synthetic sample library
+scripts/   Dev helpers (launcher, samples) and release tools (engine freezing, smoke test, versions)
 docs/      Architecture, privacy model, development guide, roadmap
 ```
 

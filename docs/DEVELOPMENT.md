@@ -111,19 +111,44 @@ npm run typecheck          # UI and desktop TypeScript
 npm run test:ui            # vitest
 ```
 
-## Building
+## Building the installer
+
+CI builds it on every release (see [Releasing](#releasing)). To build it on this PC, keep electron-builder's downloads on D: and freeze the engine in its own environment (without the CUDA libraries, exactly like CI):
 
 ```bash
-npm run build              # UI production build + desktop bundle
+export ELECTRON_CACHE='D:\Claude\github\RecPro\.cache\electron' ELECTRON_BUILDER_CACHE='D:\Claude\github\RecPro\.cache\electron-builder'
+cd engine
+UV_PROJECT_ENVIRONMENT='D:\Claude\github\RecPro\.cache\buildenv' uv sync --frozen --no-default-groups --group build
+UV_PROJECT_ENVIRONMENT='D:\Claude\github\RecPro\.cache\buildenv' uv run --no-sync python ../scripts/build_engine.py
+cd ..
+mkdir -p dist/recpro-engine/bin   # put ffmpeg.exe and ffprobe.exe from a full build here (CI bundles gyan.dev's essentials build)
+engine/.venv/Scripts/python -I scripts/smoke_engine.py dist/recpro-engine/recpro-engine.exe .cache/tmp/smoke-data --expect-ffmpeg
+npm run build
+cd desktop && npx electron-builder --win nsis --publish never   # or --win dir for an unpacked app
 ```
 
-Packaging (electron-builder + PyInstaller engine) arrives in milestone M8.
+- Copy the real `ffmpeg.exe` and `ffprobe.exe`, not a package manager's small launcher (a few hundred KB) that only works on this PC.
+- `dist/recpro-engine/` is the frozen engine (PyInstaller, one folder, about 540 MB). `scripts/smoke_engine.py` starts it the way the app does (piped output in the system code page) and checks the ready line, `/api/health`, `/api/models`, the bundled ffmpeg and that it exits when stdin closes.
+- The installer is `desktop/release/RecPro-X.Y.Z-win-x64.exe`, with `latest.yml` and a blockmap for the updater.
+- A frozen engine that seems stuck can print every thread's stack: set `RECPRO_DUMP_STACKS=30` before starting it.
+- The CUDA libraries live in the `cuda` dependency group (installed by default for development). The installed app downloads the same wheels from PyPI as its **GPU pack** (`ml/models.py`, `GPU_WHEELS`); a test fails when they drift from `uv.lock`.
+
+## Releasing
+
+Versions follow `X.Y.Z`. Day-to-day work is on `dev`; a release is `dev` pushed to `main`.
+
+1. `node scripts/release.mjs set X.Y.Z`: writes the version into `engine/pyproject.toml`, `engine/recpro/__init__.py`, `engine/uv.lock`, the three `package.json` files and `package-lock.json`; turns the changelog's *Unreleased* into `## [X.Y.Z] — <date>`; drafts `docs/releases/vX.Y.Z.md`.
+2. Write the release notes in `docs/releases/vX.Y.Z.md` for people using RecPro (remove the draft line), then `node scripts/release.mjs check X.Y.Z`.
+3. Commit and push `dev`; wait for **ci** (engine tests on Windows, UI and shell build) to be green.
+4. `git push origin dev:main`. The **release** workflow checks the versions and notes, creates the tag and the GitHub release, and the **desktop** workflow builds the installer and attaches it with `latest.yml`. Check that both runs succeeded and that the release has the `.exe`.
+
+Run status is public: `https://api.github.com/repos/buildcool/RecPro/actions/runs`.
 
 ## Conventions
 
 - **Engine:** Python 3.12, type hints, no global state beyond the `Context`. Long work runs in services/threads; API handlers stay quick. Anything that touches user files goes through `ops/` and keeps its guarantees tested.
 - **UI:** function components, TanStack Query for server state, Zustand for UI state, Tailwind tokens from `styles.css` (never raw colors). Copy is sentence case, verb-first buttons, no "please".
-- **Privacy:** no network calls from the engine except the model downloader; no remote assets in the UI.
+- **Privacy:** no network calls from the engine except the model downloader (and the GPU pack from PyPI); the desktop shell's update check is the only other one, and it obeys *Strict offline*. No remote assets in the UI.
 
 ## Commits
 

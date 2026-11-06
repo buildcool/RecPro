@@ -13,7 +13,12 @@ All analysis runs locally with ONNX Runtime (on your graphics card when availabl
 
 ## Network use
 
-RecPro has exactly one feature that uses the internet: downloading its AI models the first time you set up recognition. You start it, you see the sizes first, and each file is checked against a SHA-256 hash. The *Strict offline* setting blocks even that. There is no telemetry, analytics, crash reporting or update check that sends data.
+RecPro uses the internet for two things, and *Strict offline* (Settings → Network) blocks both:
+
+- **Downloading its AI models**, the first time you set up recognition. You start it, you see the sizes first, and each file is checked against a SHA-256 hash. On a PC with an NVIDIA graphics card, the installed app also offers the **GPU pack** (about 1.2 GB): NVIDIA's CUDA and cuDNN libraries, downloaded from NVIDIA's own packages on PyPI and checked against PyPI's SHA-256.
+- **Checking for updates** (Settings → Updates: *Download for me*, *Ask me first*, the default, or *Off*). A check asks GitHub for RecPro's latest release; GitHub sees the app's version and your IP address. Nothing about your photos, people, text or settings is sent. Updates install only when you click *Restart to update*, or when you next close RecPro after a download.
+
+There is no telemetry, analytics or crash reporting.
 
 The engine only listens on `127.0.0.1` and requires a secret token that the desktop app creates at every launch, so other programs and websites can't query it.
 
