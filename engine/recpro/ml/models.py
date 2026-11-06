@@ -102,6 +102,24 @@ MODELS: list[ModelSpec] = [
         params={"logit_scale": 4.7244534, "logit_bias": -16.771725},
     ),
     ModelSpec(
+        id="emotion",
+        name="Facial expressions (HSEmotion EfficientNet-B2)",
+        purpose="Happy, sad, surprised, angry… for each face",
+        license="Apache-2.0",
+        profiles=("best", "fast"),
+        approx_size=30_779_724,
+        folder="emotion",
+        files=[
+            FileSpec(
+                url="https://raw.githubusercontent.com/sb-ai-lab/EmotiEffLib/main/models/affectnet_emotions/onnx/enet_b2_8.onnx",
+                dest="emotion/enet_b2_8.onnx",
+                size=30_779_724,
+                git_sha1="a7cb612cbab1ce3d50dd52e57285fb2c7ea6d0d9",
+            )
+        ],
+        required_files=("enet_b2_8.onnx",),
+    ),
+    ModelSpec(
         id="nudenet",
         name="Private content detector (NudeNet 640m)",
         purpose="Finds nudity and suggestive content for the Private section",

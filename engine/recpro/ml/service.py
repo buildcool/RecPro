@@ -62,6 +62,18 @@ class ML:
                 self._engines["nudenet"] = d
             return d
 
+    def emotion(self):
+        if not self.has("emotion"):
+            return None
+        with self._lock:
+            m = self._engines.get("emotion")
+            if m is None:
+                from .emotion import EmotionModel
+
+                m = EmotionModel(self.models.path("emotion") / "enet_b2_8.onnx", use_gpu=self.use_gpu)
+                self._engines["emotion"] = m
+            return m
+
     def semantic_id(self) -> str | None:
         """Which SigLIP model to use: the profile's choice if installed, else whichever is."""
         prefer = "siglip2" if self.ctx.settings.get("models.profile", "best") == "best" else "siglip2-fast"
@@ -88,6 +100,11 @@ class ML:
     def _on_installed(self, model_id: str) -> None:
         with self._lock:
             self._engines.pop(model_id, None)
+        if model_id == "emotion":
+            # photos analyzed before the expression model arrived get their faces' expressions now
+            self.ctx.db.x(
+                "UPDATE media SET deep_v=1 WHERE id IN (SELECT DISTINCT media_id FROM faces WHERE emotion IS NULL AND frame_ms IS NULL)"
+            )
         indexer = self.ctx.services.get("indexer")
         if indexer is not None:
             indexer.wake()  # type: ignore[attr-defined]
