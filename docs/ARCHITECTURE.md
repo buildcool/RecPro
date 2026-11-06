@@ -102,6 +102,16 @@ A face is never *Sure* when its quality is below 0.35 or when a second person sc
 
 **Lock.** The PIN or password is stored as an Argon2id hash. An X25519 key pair is created at setup; the private key is encrypted with a key derived from the secret (Argon2id raw, 64 MiB) and only decrypted in memory on unlock. When an item becomes private, its plain thumbnail, preview and face crops are deleted, and thumbnails and previews are written as sealed boxes, which the engine can create while locked but only read while unlocked. While locked, thumbnails return a lock placeholder, details/previews/originals return 423, private listings are refused, and every listing and search leaves private items out (Find reports how many). After unlocking, *Blur* and *Show private items everywhere* are in-memory toggles reset by every lock. Auto-lock fires after the chosen idle time (the UI sends activity pings), on Windows lock or sleep, on Ctrl+L and on restart. Five wrong tries within 5 minutes impose a 30-second wait. *Forgot your PIN?* deletes the keys, private labels and sealed images, then re-checks everything.
 
+## Categories and search (`taxonomy.py`, `semindex.py`, `review/query.py`)
+
+**Embeddings once, categories any time.** The semantic stage stores one SigLIP 2 embedding per photo (`embeddings`, float16) and an in-memory index (`semindex.py`) loads them at startup. Built-in categories (`taxonomy.BUILTIN`, about 90 prompt ensembles in 9 groups) and your own categories are scored from those embeddings, so a new category or a new taxonomy version re-scores the whole library in seconds with no photo decoding.
+
+**Relative scoring.** SigLIP's own sigmoid stays low for short prompts (a real chat screenshot scores 0.12 for "a chat screenshot"), so each category competes in a softmax at SigLIP's temperature against the other categories of its group and a few "nothing special" background prompts (`taxonomy.BACKGROUND`). Your own categories compete only with generic backgrounds. The absolute probability is stored as a second source. Moods, kinds of people and entertainment use stricter "sure" thresholds. After 8 confirmed and 8 rejected answers, a logistic regression on the embeddings becomes a third source ("personal").
+
+**Expressions.** HSEmotion EfficientNet-B2 classifies each face into 8 expressions. Its probabilities are flat, so search uses per-expression confidence floors (stricter for angry, disgust and contempt, which AffectNet models over-predict on neutral faces).
+
+**Universal search.** `query.parse` extracts named people (longest names first), years, months, photo/video, age and gender words, group size, expressions, folder names and an exact category name; the rest is free text. `query.run` narrows by these filters (people via Find, expressions on the matched person's own face) and ranks free text by its relative SigLIP score against generic backgrounds, plus words found inside photos. A query mixing private content with children is refused.
+
 ## File operations (`ops/service.py`)
 
 The copy-and-move engine is the part that must never lose a file. Its guarantees, each covered by `engine/tests/test_ops.py`:

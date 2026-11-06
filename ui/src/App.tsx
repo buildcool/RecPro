@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query';
-import { Compass } from 'lucide-react';
 import { lazy, Suspense, useEffect } from 'react';
 import { createHashRouter, Navigate, Outlet, RouterProvider, useLocation } from 'react-router';
 import { AppShell } from './app/AppShell';
@@ -8,7 +7,6 @@ import { usePrivateActivity, usePrivateHotkeys } from './features/private/Privat
 import { get } from './lib/api';
 import { setTheme, type ThemePref } from './lib/theme';
 import type { Settings } from './lib/types';
-import { Placeholder } from './pages/Placeholder';
 
 const lazyPage = (name: string, loader: () => Promise<Record<string, React.ComponentType>>) =>
   lazy(async () => ({ default: (await loader())[name] }));
@@ -21,6 +19,9 @@ const PersonPage = lazyPage('PersonPage', () => import('./pages/Person'));
 const ReviewPage = lazyPage('ReviewPage', () => import('./pages/Review'));
 const FindPage = lazyPage('FindPage', () => import('./pages/Find'));
 const PrivatePage = lazyPage('PrivatePage', () => import('./pages/Private'));
+const ExplorePage = lazyPage('ExplorePage', () => import('./pages/Explore'));
+const LabelPage = lazyPage('LabelPage', () => import('./pages/Label'));
+const SearchPage = lazyPage('SearchPage', () => import('./pages/Search'));
 const Folders = lazyPage('FoldersPage', () => import('./pages/Folders'));
 const Settings = lazyPage('SettingsPage', () => import('./pages/Settings'));
 const Onboarding = lazyPage('OnboardingPage', () => import('./pages/Onboarding'));
@@ -71,7 +72,9 @@ const router = createHashRouter([
           { path: '/people', element: <Page><PeoplePage /></Page> },
           { path: '/people/:id', element: <Page><PersonPage /></Page> },
           { path: '/find', element: <Page><FindPage /></Page> },
-          { path: '/explore', element: <Placeholder title="Explore" icon={<Compass className="size-6" />} /> },
+          { path: '/explore', element: <Page><ExplorePage /></Page> },
+          { path: '/explore/:id', element: <Page><LabelPage /></Page> },
+          { path: '/search', element: <Page><SearchPage /></Page> },
           { path: '/review', element: <Page><ReviewPage /></Page> },
           { path: '/private', element: <Page><PrivatePage /></Page> },
           { path: '/folders', element: <Page><Folders /></Page> },

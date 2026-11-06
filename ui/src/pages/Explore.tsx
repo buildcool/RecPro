@@ -1,0 +1,139 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Compass, Plus, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router';
+import { toast } from 'sonner';
+import { Button, EmptyState, Field, Modal, PageHeader, TextInput } from '../components/ui';
+import { ModelSetupCard } from '../features/models/ModelSetup';
+import { get, mediaUrl, post } from '../lib/api';
+import { num } from '../lib/format';
+
+type Lab = { id: number; key: string; name: string; grp: string; builtin: number; count: number; cover: number | null; cover_v: number | null };
+type Group = { key: string; name: string; labels: Lab[] };
+
+export function ExplorePage() {
+  const { data, isLoading } = useQuery({ queryKey: ['explore'], queryFn: () => get<Group[]>('/api/explore') });
+  const [creating, setCreating] = useState(false);
+  const empty = !isLoading && (data ?? []).every((g) => g.labels.length === 0);
+  return (
+    <div className="h-full overflow-y-auto">
+      <PageHeader
+        title="Explore"
+        subtitle="What's in your photos: activities, places, things, documents and more, recognized on this PC."
+        actions={
+          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setCreating(true)}>
+            Create a category
+          </Button>
+        }
+      />
+      <div className="space-y-8 px-6 pb-12">
+        <ModelSetupCard need="siglip2" />
+        {empty && (
+          <EmptyState
+            icon={<Compass className="size-6" />}
+            title="Categories appear as photos are understood"
+            body="Each photo is matched against activities, places, things, documents and screenshots. You can also create your own category by describing it."
+          />
+        )}
+        {data
+          ?.filter((g) => g.labels.length > 0 || g.key === 'custom')
+          .map((g) => (
+            <section key={g.key}>
+              <h2 className="mb-3 text-[15px] font-semibold">{g.name}</h2>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
+                {g.labels.map((l) => (
+                  <Link key={l.id} to={`/explore/${l.id}`} className="group overflow-hidden rounded-2xl border border-line bg-surface transition-colors hover:border-line-strong">
+                    <div className="aspect-[4/3] overflow-hidden bg-thumb">
+                      {l.cover ? (
+                        <img src={mediaUrl(`media/thumb/${l.cover}?v=${l.cover_v ?? 1}`)} alt="" loading="lazy" className="size-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                      ) : (
+                        <div className="flex size-full items-center justify-center text-fg-3">
+                          <Sparkles className="size-6" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="px-3 py-2">
+                      <div className="truncate text-sm font-semibold">{l.name}</div>
+                      <div className="text-xs text-fg-3">{num(l.count)} items</div>
+                    </div>
+                  </Link>
+                ))}
+                {g.key === 'custom' && (
+                  <button
+                    type="button"
+                    onClick={() => setCreating(true)}
+                    className="flex min-h-[150px] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line-strong text-fg-2 hover:border-accent hover:text-accent-text"
+                  >
+                    <Plus className="size-6" />
+                    <span className="text-sm font-medium">New category</span>
+                  </button>
+                )}
+              </div>
+            </section>
+          ))}
+      </div>
+      <CreateCategory open={creating} onClose={() => setCreating(false)} />
+    </div>
+  );
+}
+
+function CreateCategory({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [name, setName] = useState('');
+  const [desc, setDesc] = useState('');
+  const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
+  const nav = useNavigate();
+  return (
+    <Modal
+      open={open}
+      onOpenChange={(v) => !v && onClose()}
+      title="Create a category"
+      description="Describe what you're looking for. RecPro scores every photo right away, asks you about unsure ones, and learns from your answers."
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            loading={busy}
+            disabled={!name.trim()}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const r = await post<{ id: number }>('/api/labels', { name, prompts: desc.split('\n') });
+                toast.success(`Created ${name}`, { description: 'Matches appear in a few seconds.' });
+                qc.invalidateQueries({ queryKey: ['explore'] });
+                onClose();
+                setName('');
+                setDesc('');
+                nav(`/explore/${r.id}`);
+              } catch (e) {
+                toast.error((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Create
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Name">
+          <TextInput autoFocus placeholder="My bike" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="Describe it (one way per line)" hint="For example: a red motorcycle · a person riding a motorbike on a highway">
+          <textarea
+            value={desc}
+            onChange={(e) => setDesc(e.target.value)}
+            rows={4}
+            placeholder={'a red motorcycle\na person riding a motorbike'}
+            className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+          />
+        </Field>
+      </div>
+    </Modal>
+  );
+}
