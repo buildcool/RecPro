@@ -195,4 +195,9 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX faces_state ON faces(state);
     """,
+    # v3 — semantic (SigLIP) stage version and private-state index
+    """
+    ALTER TABLE media ADD COLUMN sem_v INTEGER NOT NULL DEFAULT 0;
+    CREATE INDEX media_sens ON media(sens_state);
+    """,
 ]

@@ -50,9 +50,12 @@ class Indexer:
     def start(self) -> None:
         from .deep import DeepStage
         from .quick import QuickStage
+        from .semantic import SemanticStage
+        from .sens import SensStage
 
-        # Order = priority: cheap passes first so the gallery fills fast, then AI passes.
-        defaults = [QuickStage(self.ctx), DeepStage(self.ctx)]
+        # Order = priority: thumbnails first so the gallery fills fast, the private check before
+        # anything is shown unblurred, then faces and understanding.
+        defaults = [QuickStage(self.ctx), SensStage(self.ctx), DeepStage(self.ctx), SemanticStage(self.ctx)]
         names = {s.name for s in self.stages}
         for st in reversed(defaults):
             if st.name not in names:

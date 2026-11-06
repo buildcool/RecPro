@@ -45,6 +45,13 @@ def patch_settings(values: dict[str, Any], c: Context = Depends(ctx)) -> dict[st
     except KeyError as e:
         raise HTTPException(400, str(e))
     c.events.publish("settings", out)
+    labels = c.services.get("labels")
+    if labels is not None and any(k.startswith("sensitivity.") for k in values):
+        labels.on_settings()  # type: ignore[attr-defined]
+    if "sensitivity.faces" in values:
+        people = c.services.get("people")
+        if people is not None:
+            people.publish()  # type: ignore[attr-defined]
     return out
 
 

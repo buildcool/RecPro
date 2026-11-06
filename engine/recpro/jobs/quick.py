@@ -50,6 +50,15 @@ class QuickStage:
                     [res.get(k) for k in COLUMNS] + [QUICK_V, row["id"]],
                 )
 
+    def _save_thumb(self, row: Any, img) -> None:
+        """Private items never get a readable thumbnail on disk, only a sealed one."""
+        if row["sens_state"] in ("private", "review"):
+            priv = self.ctx.services.get("private")
+            if priv is not None:
+                priv.store_cached("thumb", row["id"], img)  # type: ignore[attr-defined]
+            return
+        save_webp(img, shard(self.ctx.paths.thumbs, row["id"]), THUMB_MAX, quality=80)
+
     def _one(self, row: Any) -> dict[str, Any]:
         path = row["path"]
         out: dict[str, Any] = {"has_exif_camera": 0}
@@ -59,14 +68,14 @@ class QuickStage:
                 raw, disp, orig = open_image(path, want=THUMB_MAX * 2)
                 with raw:
                     out.update(image_meta(raw, orig))
-                save_webp(disp, shard(self.ctx.paths.thumbs, row["id"]), THUMB_MAX, quality=80)
+                self._save_thumb(row, disp)
                 out["phash"] = phash(disp)
             else:
                 out.update(video_meta(path))
                 dur = out.get("duration") or 0
                 at = min(3.0, dur * 0.1) if dur else 0.0
                 frame = video_frame(path, at, max_side=THUMB_MAX * 2)
-                save_webp(frame, shard(self.ctx.paths.thumbs, row["id"]), THUMB_MAX, quality=80)
+                self._save_thumb(row, frame)
                 out["phash"] = phash(frame)
         except Exception as e:  # unreadable/corrupt files are kept but flagged
             log.info("quick pass failed for %s: %s", path, e)

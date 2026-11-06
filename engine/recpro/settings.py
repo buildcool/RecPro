@@ -38,7 +38,15 @@ class Settings:
     def all(self) -> dict[str, Any]:
         with self._lock:
             if self._cache is None:
-                stored = {r["key"]: json.loads(r["value"]) for r in self.db.q("SELECT key, value FROM settings")}
+                stored: dict[str, Any] = {}
+                # Only user settings live here; other rows (e.g. the private lock's keys) are internal.
+                for r in self.db.q("SELECT key, value FROM settings"):
+                    if r["key"] not in DEFAULTS:
+                        continue
+                    try:
+                        stored[r["key"]] = json.loads(r["value"])
+                    except ValueError:
+                        continue
                 self._cache = {**DEFAULTS, **stored}
             return dict(self._cache)
 

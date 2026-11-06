@@ -15,6 +15,7 @@ SERVICE_MODULES = [
     ("indexer", "recpro.jobs.indexer"),
     ("ops", "recpro.ops.service"),
     ("people", "recpro.review.people"),
+    ("labels", "recpro.labels"),
     ("private", "recpro.private"),
 ]
 
