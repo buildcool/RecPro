@@ -184,4 +184,15 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX op_items_op ON op_items(op_id, state);
     """,
+    # v2 — answers to "Same person?" questions
+    """
+    CREATE TABLE person_pairs(
+      a INTEGER NOT NULL,
+      b INTEGER NOT NULL,
+      same INTEGER NOT NULL,
+      at REAL NOT NULL,
+      PRIMARY KEY(a, b)
+    );
+    CREATE INDEX faces_state ON faces(state);
+    """,
 ]
