@@ -1,0 +1,14 @@
+node_modules/
+dist/
+out/
+release/
+.devdata/
+.testdata/
+engine/.venv/
+engine/build/
+engine/*.spec
+__pycache__/
+*.pyc
+.pytest_cache/
+*.log
+.env.local
