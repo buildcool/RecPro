@@ -10,6 +10,7 @@ export interface RecproBridge {
   showInExplorer(p: string): void;
   openPath(p: string): void;
   startDrag(paths: string[]): void;
+  startDragIds(ids: number[]): void;
   notify(title: string, body: string): void;
   pathForFile(f: File): string;
   setDataDir(dir: string): Promise<EngineInfo>;

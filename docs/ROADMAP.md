@@ -5,7 +5,7 @@ Every feature area ships in this build, delivered as milestones. Status reflects
 | # | Milestone | Status | Done when |
 |---|---|---|---|
 | M0 | **Scaffold**: repository, Electron shell, local engine with token auth, React UI shell, design system | Done | App opens; header shows *Local only*; navigation works |
-| M1 | **Library**: folders, scanner/watcher, metadata, thumbnails, Photos grid, Viewer, Folders, Home · **safe file operations** (copy → verify → Bin → undo) + History | In progress: engine, Folders, Home, Settings and onboarding done; Photos grid, Viewer and History next | 10k-photo folder browsable in seconds; operation tests pass, including a crash mid-copy |
+| M1 | **Library**: folders, scanner/watcher, metadata, thumbnails, Photos grid, Viewer, Folders, Home · **safe file operations** (copy → verify → Bin → undo) + History | Done | 10k-photo folder browsable in seconds; operation tests pass, including a crash mid-copy |
 | M2 | **Faces and People**, **Review** inbox, learning, coverage meter, **Find and Move** wizard | Planned | Find a person across two folders → check doubts → copy → verify → remove to Bin → undo |
 | M3 | **Private**: pre-check before showing, sensitive ensemble, blurred review, PIN/password lock, visibility toggles, encrypted private thumbnails, auto re-lock | Planned | Locked: private items never shown or served. Unlocked: both toggles work. Doubtful items always reach Review. |
 | M4 | **Smart categories**: SigLIP 2 search and taxonomy, objects, age/gender/emotion, group size, named pets, custom categories, Ctrl+K universal search | Planned | "laptop on sofa" and "happy group at beach" return tiered results |

@@ -1,12 +1,19 @@
 import { create } from 'zustand';
 
-/** Global entry point for the copy/move flow (implemented in M1's CopyDialog). */
+/** Global entry point for the copy/move dialog. */
+export type CopyContext = {
+  title?: string;
+  personIds?: number[];
+  /** media id -> person name, enables the "By person" folder layout */
+  personByMedia?: Record<number, string>;
+} | null;
+
 type CopyFlowState = {
   open: boolean;
   mediaIds: number[];
   mode: 'copy' | 'move';
-  context: { personIds?: number[]; title?: string } | null;
-  start(ids: number[], mode: 'copy' | 'move', context?: CopyFlowState['context']): void;
+  context: CopyContext;
+  start(ids: number[], mode: 'copy' | 'move', context?: CopyContext): void;
   close(): void;
 };
 

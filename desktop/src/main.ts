@@ -237,6 +237,26 @@ function registerIpc() {
     e.sender.startDrag({ file: files[0], files, icon });
   });
 
+  // Drag selected library items out of the app: the main process resolves their paths.
+  ipcMain.on('start-drag-ids', async (e, ids: number[]) => {
+    if (!fromApp(e) || !engine || !Array.isArray(ids) || ids.length === 0) return;
+    try {
+      const res = await net.fetch(engineUrl('api/media/paths'), {
+        method: 'POST',
+        headers: { 'X-RecPro-Token': engine.token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: ids.slice(0, 5000) }),
+      });
+      const map = (await res.json()) as Record<string, string>;
+      const files = Object.values(map).filter((p) => fs.existsSync(p));
+      if (files.length === 0) return;
+      const iconFile = path.join(__dirname, '..', 'assets', 'drag.png');
+      const icon = fs.existsSync(iconFile) ? nativeImage.createFromPath(iconFile) : nativeImage.createEmpty();
+      e.sender.startDrag({ file: files[0], files, icon });
+    } catch {
+      /* drag simply doesn't start */
+    }
+  });
+
   ipcMain.on('notify', (e, msg: { title: string; body: string }) => {
     if (!fromApp(e) || !Notification.isSupported()) return;
     new Notification({ title: String(msg?.title ?? 'RecPro'), body: String(msg?.body ?? ''), silent: false }).show();

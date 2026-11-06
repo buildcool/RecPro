@@ -28,9 +28,12 @@ import { CommandPalette, usePalette } from './CommandPalette';
 import { SelectionBar } from './SelectionBar';
 import { PrivateUnlockDialog, usePrivateUi } from '../features/private/PrivateLock';
 import { FolderBrowserDialog } from '../features/library/FolderBrowser';
+import { CopyDialog, useOpNotifications } from '../features/ops/CopyDialog';
+import { Viewer } from '../features/viewer/Viewer';
 
 export function AppShell() {
   const openPalette = usePalette((s) => s.setOpen);
+  useOpNotifications();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -55,6 +58,8 @@ export function AppShell() {
       <CommandPalette />
       <PrivateUnlockDialog />
       <FolderBrowserDialog />
+      <CopyDialog />
+      <Viewer />
     </div>
   );
 }

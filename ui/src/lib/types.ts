@@ -39,6 +39,7 @@ export type MediaItem = {
   priv: boolean; // private (sensitive) and currently hidden/blurred
   chk: boolean; // sensitivity not checked yet
   v: number; // thumbnail version for cache busting
+  err?: boolean; // file couldn't be read
 };
 
 export type MediaDetail = {

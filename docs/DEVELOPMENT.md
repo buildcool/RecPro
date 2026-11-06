@@ -43,6 +43,16 @@ npm run dev:ui
 
 The UI falls back to `http://127.0.0.1:47321` with token `devtoken` when it isn't running inside the desktop app (`VITE_ENGINE_URL` and `VITE_ENGINE_TOKEN` override this). Folder picking then uses the built-in folder browser.
 
+### Keeping the bin out of drive roots
+
+In normal use, removed originals go to `<drive>\.RecPro-Bin`. When you experiment with the sample library, set `RECPRO_BIN_ROOT` to a folder on the same drive so the bin stays inside the repository:
+
+```bash
+cd engine && RECPRO_TOKEN=devtoken RECPRO_BIN_ROOT='D:\path\to\RecPro\.testdata' uv run python -m recpro.server --data-dir ../.devdata --port 47321
+```
+
+Tests do the same automatically with a temporary folder.
+
 ### Sample library
 
 `scripts/make_samples.py` creates a synthetic library (dated JPEGs, rotated images, a screenshot, a WhatsApp-style file, a duplicate, two short videos) with no personal data:

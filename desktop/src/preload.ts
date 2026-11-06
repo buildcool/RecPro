@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('recpro', {
   showInExplorer: (p: string) => ipcRenderer.send('show-in-explorer', p),
   openPath: (p: string) => ipcRenderer.send('open-path', p),
   startDrag: (paths: string[]) => ipcRenderer.send('start-drag', paths),
+  startDragIds: (ids: number[]) => ipcRenderer.send('start-drag-ids', ids),
   notify: (title: string, body: string) => ipcRenderer.send('notify', { title, body }),
   pathForFile: (f: File) => webUtils.getPathForFile(f),
   setDataDir: (dir: string): Promise<EngineInfo> => ipcRenderer.invoke('set-data-dir', dir),
