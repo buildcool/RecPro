@@ -48,11 +48,16 @@ class Indexer:
 
     # ---- control ------------------------------------------------------------
     def start(self) -> None:
+        from .deep import DeepStage
         from .quick import QuickStage
 
-        if not any(s.name == "quick" for s in self.stages):
-            self.stages.insert(0, QuickStage(self.ctx))
-            self._rates["quick"] = deque(maxlen=50)
+        # Order = priority: cheap passes first so the gallery fills fast, then AI passes.
+        defaults = [QuickStage(self.ctx), DeepStage(self.ctx)]
+        names = {s.name for s in self.stages}
+        for st in reversed(defaults):
+            if st.name not in names:
+                self.stages.insert(0, st)
+                self._rates[st.name] = deque(maxlen=50)
         threading.Thread(target=self._run, name="indexer", daemon=True).start()
         threading.Thread(target=self._status_loop, name="indexer-status", daemon=True).start()
 
