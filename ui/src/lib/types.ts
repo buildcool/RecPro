@@ -41,7 +41,12 @@ export type MediaItem = {
   chk: boolean; // sensitivity not checked yet
   v: number; // thumbnail version for cache busting
   err?: boolean; // file couldn't be read
+  at_ms?: number; // videos: where the match is (Find, search)
+  spans?: Moment[]; // videos: when the matched people or categories are on screen
 };
+
+/** A stretch of a video: a person on screen, a category, a matching scene. */
+export type Moment = { person_id?: number | null; label_id?: number; name: string | null; start_ms: number; end_ms: number };
 
 export type MediaDetail = {
   id: number;
@@ -67,6 +72,7 @@ export type MediaDetail = {
   faces: FaceBox[];
   labels: MediaLabel[];
   text?: string | null;
+  label_spans?: { label_id: number; name: string; start_ms: number; end_ms: number }[];
 };
 
 export type FaceBox = {
@@ -83,6 +89,7 @@ export type FaceBox = {
   age: number | null;
   male: number | null;
   emotion: string | null;
+  spans?: { start_ms: number; end_ms: number }[]; // videos: when this person is on screen
 };
 
 export type MediaLabel = {

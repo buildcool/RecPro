@@ -3,7 +3,7 @@ import { Check, EyeOff, ImageOff, Lock, Play, Users } from 'lucide-react';
 import { memo, type MouseEvent, useRef, useState } from 'react';
 import { mediaUrl } from '../../lib/api';
 import { bridge } from '../../lib/bridge';
-import { duration } from '../../lib/format';
+import { clock, duration } from '../../lib/format';
 import { useSelection } from '../../lib/selection';
 import type { MediaItem } from '../../lib/types';
 
@@ -98,9 +98,12 @@ export const Thumb = memo(function Thumb({ item, box, selected, selecting, onAct
         <Check className="size-3.5" strokeWidth={3} />
       </button>
       {item.kind === 'video' && (
-        <span className="pointer-events-none absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-medium text-white">
+        <span
+          className="pointer-events-none absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-medium text-white"
+          title={item.at_ms != null ? `Opens at ${clock(item.at_ms)}, where it matches` : undefined}
+        >
           <Play className="size-3 fill-white" />
-          {duration(item.dur)}
+          {item.at_ms != null ? `at ${clock(item.at_ms)}` : duration(item.dur)}
         </span>
       )}
       {item.faces > 1 && !hidden && (

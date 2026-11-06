@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { ChevronLeft, ChevronRight, Copy, ExternalLink, FolderOpen, Info, Lock, MapPin, Maximize2, Minimize2, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { ApiError, get, mediaUrl } from '../../lib/api';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ApiError, get, mediaUrl, post } from '../../lib/api';
 import { bridge } from '../../lib/bridge';
-import { bytes, dateTime, duration } from '../../lib/format';
+import { bytes, clock, dateTime, duration } from '../../lib/format';
 import { useSelection } from '../../lib/selection';
 import type { MediaDetail } from '../../lib/types';
 import { useCopyFlow } from '../ops/CopyFlow';
@@ -18,7 +18,7 @@ const SRC_LABEL: Record<string, string> = {
 };
 
 export function Viewer() {
-  const { open, ids, index, go, close } = useViewer();
+  const { open, ids, index, go, close, startAt } = useViewer();
   const [info, setInfo] = useState(() => {
     try {
       return localStorage.getItem('recpro.viewer.info') !== '0';
@@ -115,7 +115,7 @@ export function Viewer() {
               This item is private. Unlock Private to see it.
             </div>
           ) : d?.kind === 'video' ? (
-            <VideoView id={id} path={d.path} />
+            <VideoView id={id} d={d} startMs={startAt[id]} />
           ) : (
             <img
               key={id}
@@ -169,7 +169,7 @@ export function Viewer() {
           )}
           {d.labels.length > 0 && (
             <div className="mt-5">
-              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-white/50">Found in this photo</div>
+              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-white/50">Found in this {d.kind === 'video' ? 'video' : 'photo'}</div>
               <div className="flex flex-wrap gap-1.5">
                 {d.labels.map((l) => (
                   <span key={l.label_id} className={clsx('rounded-md px-2 py-0.5 text-xs', l.tier === 'sure' || l.state === 'confirmed' ? 'bg-white/12' : 'bg-[#3a2a10] text-[#e5a94a]')}>
@@ -192,21 +192,163 @@ export function Viewer() {
   );
 }
 
-function VideoView({ id, path }: { id: number; path: string }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [id]);
-  if (failed)
-    return (
-      <div className="flex max-w-sm flex-col items-center gap-3 text-center text-white/70">
-        This video's format can't play inside RecPro yet.
-        {bridge && (
-          <button type="button" onClick={() => bridge!.openPath(path)} className="flex items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/20">
-            <ExternalLink className="size-4" /> Open in your video player
-          </button>
+type PlayableState = { state: 'none' | 'making' | 'ready' | 'failed'; progress: number; error?: string };
+type Lane = { key: string; label: string; avatar?: string; spans: { start_ms: number; end_ms: number }[]; tone: 'person' | 'private' | 'label' };
+
+const TONE: Record<Lane['tone'], string> = { person: 'bg-[#8fb1fb]', private: 'bg-[#c39bf5]', label: 'bg-white/45' };
+
+function VideoView({ id, d, startMs }: { id: number; d: MediaDetail; startMs?: number }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [now, setNow] = useState(0);
+  const [src, setSrc] = useState<'original' | 'playable'>('original');
+  const [making, setMaking] = useState<PlayableState | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSrc('original');
+    setMaking(null);
+    setFailed(null);
+    setNow(0);
+    // a copy made earlier plays right away (HEVC and other codecs this player may not open)
+    if (d.vcodec && !/^(h264|avc)/i.test(d.vcodec)) {
+      get<PlayableState>(`/api/media/${id}/playable`)
+        .then((st) => st.state === 'ready' && setSrc('playable'))
+        .catch(() => {});
+    }
+  }, [id, d.vcodec]);
+
+  useEffect(() => {
+    if (making?.state !== 'making') return;
+    const t = setInterval(async () => {
+      try {
+        const st = await get<PlayableState>(`/api/media/${id}/playable`);
+        if (st.state === 'ready') {
+          setMaking(null);
+          setSrc('playable');
+        } else if (st.state === 'failed') {
+          setMaking(null);
+          setFailed(st.error ? `RecPro couldn’t make a playable copy (${st.error}).` : 'RecPro couldn’t make a playable copy.');
+        } else setMaking(st);
+      } catch {
+        /* try again next tick */
+      }
+    }, 1000);
+    return () => clearInterval(t);
+  }, [making?.state, id]);
+
+  const onError = async () => {
+    if (src === 'playable') {
+      setFailed('This video can’t play inside RecPro.');
+      return;
+    }
+    try {
+      const st = await post<PlayableState>(`/api/media/${id}/playable`);
+      if (st.state === 'ready') setSrc('playable');
+      else setMaking(st);
+    } catch (e) {
+      setFailed(e instanceof ApiError ? e.message : 'This video’s format can’t play inside RecPro.');
+    }
+  };
+
+  const seek = (ms: number) => {
+    const v = ref.current;
+    if (!v) return;
+    v.currentTime = ms / 1000;
+    void v.play().catch(() => {});
+  };
+
+  const lanes = useMemo(() => {
+    const out: Lane[] = [];
+    for (const f of d.faces) {
+      if (f.spans?.length) {
+        out.push({ key: `f${f.id}`, label: f.person_name ?? 'Unnamed person', avatar: mediaUrl(`media/face/${f.id}?size=64`), spans: f.spans, tone: 'person' });
+      }
+    }
+    const grp = new Map(d.labels.map((l) => [l.label_id, l.grp]));
+    const byLabel = new Map<number, Lane>();
+    for (const sp of d.label_spans ?? []) {
+      let lane = byLabel.get(sp.label_id);
+      if (!lane) {
+        lane = { key: `l${sp.label_id}`, label: sp.name, spans: [], tone: grp.get(sp.label_id) === 'sensitive' ? 'private' : 'label' };
+        byLabel.set(sp.label_id, lane);
+      }
+      lane.spans.push(sp);
+    }
+    const labelLanes = [...byLabel.values()];
+    return [...out, ...labelLanes.filter((l) => l.tone === 'private'), ...labelLanes.filter((l) => l.tone === 'label')];
+  }, [d]);
+
+  return (
+    <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-16 pb-5 pt-16">
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+        {failed ? (
+          <div className="flex max-w-sm flex-col items-center gap-3 text-center text-white/70">
+            {failed}
+            {bridge && (
+              <button type="button" onClick={() => bridge!.openPath(d.path)} className="flex items-center gap-2 rounded-lg bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/20">
+                <ExternalLink className="size-4" /> Open in your video player
+              </button>
+            )}
+          </div>
+        ) : making ? (
+          <div className="flex w-72 flex-col items-center gap-3 text-center text-sm text-white/75">
+            This video’s format doesn’t play here, so RecPro is making a playable copy.
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/15">
+              <div className="h-full rounded-full bg-[#8fb1fb] transition-[width]" style={{ width: `${making.progress}%` }} />
+            </div>
+            <span className="text-xs text-white/50">{making.progress}%</span>
+          </div>
+        ) : (
+          <video
+            key={`${id}-${src}`}
+            ref={ref}
+            src={mediaUrl(src === 'playable' ? `media/playable/${id}` : `media/original/${id}`)}
+            controls
+            autoPlay
+            className="max-h-full max-w-full"
+            onError={() => void onError()}
+            onLoadedMetadata={(e) => {
+              if (startMs) e.currentTarget.currentTime = startMs / 1000;
+            }}
+            onTimeUpdate={(e) => setNow(e.currentTarget.currentTime * 1000)}
+          />
         )}
       </div>
-    );
-  return <video key={id} src={mediaUrl(`media/original/${id}`)} controls autoPlay className="max-h-full max-w-full" onError={() => setFailed(true)} />;
+      {lanes.length > 0 && !failed && !making && <VideoLanes lanes={lanes} durMs={(d.duration ?? 0) * 1000} now={now} onSeek={seek} />}
+    </div>
+  );
+}
+
+/** One row per person and category: when they're in the video. Click a stretch to jump there. */
+function VideoLanes({ lanes, durMs, now, onSeek }: { lanes: Lane[]; durMs: number; now: number; onSeek: (ms: number) => void }) {
+  if (!durMs) return null;
+  const pct = (ms: number) => `${Math.min(100, Math.max(0, (ms / durMs) * 100))}%`;
+  return (
+    <div className="w-full max-w-4xl space-y-1.5" aria-label="When people and things are in this video">
+      {lanes.slice(0, 12).map((l) => (
+        <div key={l.key} className="flex items-center gap-3">
+          <div className="flex w-44 shrink-0 items-center gap-2 text-xs text-white/80">
+            {l.avatar ? <img src={l.avatar} alt="" className="size-5 shrink-0 rounded-full object-cover" /> : <span className={clsx('size-2 shrink-0 rounded-full', TONE[l.tone])} />}
+            <span className="truncate">{l.label}</span>
+          </div>
+          <div className="relative h-3 flex-1 rounded-full bg-white/10">
+            {l.spans.map((sp) => (
+              <button
+                key={`${sp.start_ms}-${sp.end_ms}`}
+                type="button"
+                aria-label={`${l.label}, ${clock(sp.start_ms)} to ${clock(sp.end_ms)}`}
+                title={`${clock(sp.start_ms)}–${clock(sp.end_ms)}`}
+                onClick={() => onSeek(sp.start_ms)}
+                className={clsx('absolute inset-y-0 min-w-1 rounded-full hover:brightness-125', TONE[l.tone])}
+                style={{ left: pct(sp.start_ms), width: `${((sp.end_ms - sp.start_ms) / durMs) * 100}%` }}
+              />
+            ))}
+            <div className="pointer-events-none absolute -inset-y-1 w-0.5 rounded bg-white" style={{ left: pct(now) }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function ViewerButton({ label, onClick, children, active }: { label: string; onClick: () => void; children: React.ReactNode; active?: boolean }) {

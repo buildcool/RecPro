@@ -10,10 +10,10 @@ import { useCopyFlow } from '../features/ops/CopyFlow';
 import { FaceAvatar } from '../features/people/FaceAvatar';
 import { answerFaces } from '../features/people/actions';
 import { usePrivateUi } from '../features/private/PrivateLock';
-import { useViewer } from '../features/viewer/viewerStore';
+import { startTimes, useViewer } from '../features/viewer/viewerStore';
 import { ApiError, mediaUrl, post, upload } from '../lib/api';
 import { bridge } from '../lib/bridge';
-import { num } from '../lib/format';
+import { clock, num } from '../lib/format';
 import { useNamedPeople } from '../lib/people';
 import { useFolders } from '../lib/queries';
 import type { MediaItem } from '../lib/types';
@@ -395,7 +395,10 @@ function CheckStep({ people, refs, mode, folderIds, kinds }: { people: number[];
   };
 
   const groups = groupBy(res.sure, (h) => h.folder);
-  const openViewer = (ids: number[], id: number) => useViewer.getState().show(ids, Math.max(0, ids.indexOf(id)));
+  const openViewer = (list: { id: number; at_ms?: number }[], id: number) => {
+    const ids = list.map((x) => x.id);
+    useViewer.getState().show(ids, Math.max(0, ids.indexOf(id)), startTimes(list));
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -452,7 +455,7 @@ function CheckStep({ people, refs, mode, folderIds, kinds }: { people: number[];
                     </div>
                     <div className="mt-1 flex items-center justify-between px-0.5 text-[11px] text-fg-2">
                       <span>{h.person_name ?? 'Match'} · {Math.round(h.score * 100)}%</span>
-                      <button type="button" className="text-accent-text hover:underline" onClick={(e) => { e.stopPropagation(); openViewer(res.check.map((x) => x.id), h.id); }}>
+                      <button type="button" className="text-accent-text hover:underline" onClick={(e) => { e.stopPropagation(); openViewer(res.check, h.id); }}>
                         View
                       </button>
                     </div>
@@ -499,7 +502,7 @@ function CheckStep({ people, refs, mode, folderIds, kinds }: { people: number[];
                   {hits.map((h) => {
                     const on = !deselected.has(h.id);
                     return (
-                      <div key={h.id} className="group relative aspect-square cursor-pointer overflow-hidden rounded-md bg-thumb" onClick={() => openViewer(hits.map((x) => x.id), h.id)}>
+                      <div key={h.id} className="group relative aspect-square cursor-pointer overflow-hidden rounded-md bg-thumb" onClick={() => openViewer(hits, h.id)}>
                         <img src={mediaUrl(`media/thumb/${h.id}?v=${h.v}`)} alt="" loading="lazy" className={clsx('size-full object-cover transition', !on && 'opacity-35 grayscale', h.priv && 'blur-private')} />
                         <button
                           type="button"
@@ -512,7 +515,11 @@ function CheckStep({ people, refs, mode, folderIds, kinds }: { people: number[];
                         >
                           <Check className="size-3" strokeWidth={3} />
                         </button>
-                        {h.kind === 'video' && <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px] text-white">Video</span>}
+                        {h.kind === 'video' && (
+                          <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px] text-white" title={momentsTitle(h.spans)}>
+                            {h.at_ms != null ? `Video · at ${clock(h.at_ms)}` : 'Video'}
+                          </span>
+                        )}
                       </div>
                     );
                   })}
@@ -568,4 +575,15 @@ function toggleSetStr(s: Set<string>, id: string) {
   if (n.has(id)) n.delete(id);
   else n.add(id);
   return n;
+}
+
+/** "Colin Powell 0:00–0:08, 0:14–0:18" for a video's matched stretches. */
+function momentsTitle(spans?: { name: string | null; start_ms: number; end_ms: number }[]): string | undefined {
+  if (!spans?.length) return undefined;
+  const by = new Map<string, string[]>();
+  for (const sp of spans) {
+    const k = sp.name ?? 'Match';
+    by.set(k, [...(by.get(k) ?? []), `${clock(sp.start_ms)}–${clock(sp.end_ms)}`]);
+  }
+  return [...by].map(([k, v]) => `${k} ${v.join(', ')}`).join('; ');
 }

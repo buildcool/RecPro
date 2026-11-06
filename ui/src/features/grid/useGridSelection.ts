@@ -4,7 +4,7 @@ import type { MediaItem } from '../../lib/types';
 import { useViewer } from '../viewer/viewerStore';
 
 /** Click / Ctrl+click / Shift+click behaviour shared by every grid. */
-export function useGridSelection(scope: string, orderedIds: () => number[]) {
+export function useGridSelection(scope: string, orderedIds: () => number[], startAt?: () => Record<number, number>) {
   const onToggle = useCallback(
     (item: MediaItem, e: MouseEvent) => {
       const sel = useSelection.getState();
@@ -27,9 +27,9 @@ export function useGridSelection(scope: string, orderedIds: () => number[]) {
     (item: MediaItem) => {
       const ids = orderedIds();
       const idx = Math.max(0, ids.indexOf(item.id));
-      useViewer.getState().show(ids.length ? ids : [item.id], ids.length ? idx : 0);
+      useViewer.getState().show(ids.length ? ids : [item.id], ids.length ? idx : 0, startAt?.());
     },
-    [orderedIds],
+    [orderedIds, startAt],
   );
 
   return { onToggle, onActivate };
