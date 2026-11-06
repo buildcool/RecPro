@@ -20,7 +20,7 @@ from .labels import LabelDef
 
 log = logging.getLogger("recpro.taxonomy")
 
-TAXONOMY_V = 2  # v2: relative (group softmax) scoring
+TAXONOMY_V = 3  # v2: relative (group softmax) scoring; v3: "it's text" alternatives, private content on absolute scores
 
 
 def _d(key: str, name: str, grp: str, *prompts: str) -> LabelDef:
@@ -133,25 +133,43 @@ BUILTIN: list[LabelDef] = [
 # SigLIP's temperature). SigLIP's absolute sigmoid stays low for short prompts, so relative
 # scoring is what makes "is this a beach?" work.
 GENERIC_BG = ["a photo", "a photo of people", "a portrait photo of a person", "an everyday photo of a scene", "an abstract colorful image"]
+# Text-heavy images (documents, chats, bills, cards) aren't photos of activities, places or things.
+# Without these alternatives the softmax had to pick a category anyway: a WhatsApp chat about a
+# party became "Party", a white ID card "Snow", an invoice for a laptop repair "Laptop". People
+# keeps its own alternatives (a headshot looks like an ID photo, and "Elderly" lost real matches).
+TEXT_BG = [
+    "a page of printed text", "a screenshot of a chat with text messages", "a printed form or bill",
+    "a plain white background", "large text on a plain background",
+]
+ID_BG = "an identity card with a photo and printed text"
 BACKGROUND: dict[str, list[str]] = {
-    "activity": ["a portrait photo of a person", "people posing for a photo", "a close-up photo of a face", "an abstract colorful image", "a photo of an object"],
-    "mood": ["a neutral photo", "a portrait photo of a person", "an everyday photo", "an abstract colorful image"],
-    "place": ["a close-up portrait photo of a person", "a photo with a plain background", "an abstract colorful image", "a photo of an object"],
+    "activity": ["a portrait photo of a person", "people posing for a photo", "a close-up photo of a face", "an abstract colorful image", "a photo of an object", *TEXT_BG],
+    "mood": ["a neutral photo", "a portrait photo of a person", "an everyday photo", "an abstract colorful image", *TEXT_BG],
+    "place": ["a close-up portrait photo of a person", "a photo with a plain background", "an abstract colorful image", "a photo of an object", *TEXT_BG, ID_BG],
     "people": ["a photo of a single adult person", "a photo with no people", "an abstract colorful image"],
-    "object": ["a portrait photo of a person", "a photo of people", "a photo of a landscape", "an abstract colorful image"],
-    "pet": ["a photo with no animals", "a photo of a person", "a photo of people", "an abstract colorful image"],
-    "document": ["a photo of people", "a photo of a scene", "a portrait photo of a person", "an abstract colorful image"],
-    "screenshot": ["a photo taken with a camera", "a portrait photo of a person", "a photo of people", "an abstract colorful image", "a graphic illustration"],
-    "entertainment": ["a normal photo", "a photo of people", "a portrait photo of a person", "an abstract colorful image"],
-    "sensitive": [
-        "a photo of people", "a portrait photo of a person", "friends hugging", "a family photo",
-        "a couple standing side by side", "a person wearing normal clothes", "an abstract colorful image",
+    "object": ["a portrait photo of a person", "a photo of people", "a photo of a landscape", "an abstract colorful image", *TEXT_BG, ID_BG],
+    "pet": ["a photo with no animals", "a photo of a person", "a photo of people", "an abstract colorful image", *TEXT_BG, ID_BG],
+    "document": [
+        "a photo of people", "a photo of a scene", "a portrait photo of a person", "an abstract colorful image",
+        "a screenshot of a phone screen", "a screenshot of a chat with text messages", "a screenshot of an app",
     ],
+    "screenshot": [
+        "a photo taken with a camera", "a portrait photo of a person", "a photo of people", "an abstract colorful image", "a graphic illustration",
+        "a photo of a printed paper document", "a paper receipt", ID_BG,
+    ],
+    "entertainment": ["a normal photo", "a photo of people", "a portrait photo of a person", "an abstract colorful image", *TEXT_BG, ID_BG],
 }
+# Private content is scored on SigLIP's own (absolute) probability, with NudeNet alongside. A
+# softmax against a few "ordinary photo" prompts can't cover every kind of photo: measured on 733
+# safe photos it put 158 in Private and 354 in "please check" (absolute scores: 0 and 8).
+ABSOLUTE_ONLY = ("sensitive",)
 
 
 def score_labels(model, E: np.ndarray, defs: list[LabelDef], cache: dict | None = None) -> dict[str, dict[str, np.ndarray]]:
-    """Per label: {"siglip_rel": relative probability, "siglip": SigLIP's absolute probability}."""
+    """Per label: {"siglip_rel": relative probability, "siglip": SigLIP's absolute probability}.
+
+    Private content gets only the absolute probability (see ABSOLUTE_ONLY).
+    """
     cache = cache if cache is not None else {}
 
     def emb(texts: tuple[str, ...]) -> np.ndarray:
@@ -169,6 +187,11 @@ def score_labels(model, E: np.ndarray, defs: list[LabelDef], cache: dict | None 
     out: dict[str, dict[str, np.ndarray]] = {}
     for gkey, ds in groups.items():
         sims = np.stack([(E @ emb(tuple(d.prompts)).T).max(axis=1) for d in ds], axis=1)
+        if ds[0].grp in ABSOLUTE_ONLY:
+            absolute = model.prob(sims)
+            for i, d in enumerate(ds):
+                out[d.key] = {"siglip": absolute[:, i]}
+            continue
         bg = BACKGROUND.get(ds[0].grp, GENERIC_BG)
         bg_sims = E @ emb(tuple(bg)).T
         logits = model.scale * np.concatenate([sims, bg_sims], axis=1)
@@ -224,9 +247,8 @@ class Taxonomy:
                 break
             time.sleep(0.2)
         try:
-            from .labels import SENSITIVE
-
-            n = self.rescore([d for d in BUILTIN] + list(SENSITIVE))
+            self.drop_relative_private_scores()
+            n = self.rescore(list(BUILTIN))
             with self.db.tx() as c:
                 c.execute(
                     "INSERT INTO settings(key, value) VALUES('taxonomy.version', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -235,6 +257,24 @@ class Taxonomy:
             log.info("taxonomy v%d scored over %d photos", TAXONOMY_V, n)
         except Exception:
             log.exception("taxonomy rescore failed")
+
+    def drop_relative_private_scores(self) -> int:
+        """v3: private content no longer uses relative scores; forget the ones stored since v2."""
+        from .labels import SENSITIVE_KEYS
+
+        labels = self.ctx.services["labels"]
+        ids = [labels.id(k) for k in SENSITIVE_KEYS]  # type: ignore[attr-defined]
+        marks = ",".join("?" * len(ids))
+        cur = self.db.x(
+            "UPDATE media_labels SET source=json_remove(source, '$.siglip_rel')"
+            f" WHERE label_id IN ({marks}) AND json_valid(source) AND json_extract(source, '$.siglip_rel') IS NOT NULL",
+            ids,
+        )
+        n = cur.rowcount or 0
+        if n:
+            labels.retier("sensitive")  # type: ignore[attr-defined]
+            log.info("dropped %d relative private-content scores", n)
+        return n
 
     # ---- scoring -------------------------------------------------------------------
     def rescore(self, defs: list[LabelDef]) -> int:

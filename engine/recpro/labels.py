@@ -24,7 +24,6 @@ THRESHOLDS: dict[str, dict[str, tuple[float, float]]] = {
     "siglip": {"never_miss": (0.05, 0.35), "balanced": (0.10, 0.35), "fewer": (0.20, 0.30)},
     # relative SigLIP score: the category against "nothing special" prompts in its group
     "siglip_rel": {"never_miss": (0.12, 0.50), "balanced": (0.20, 0.50), "fewer": (0.30, 0.45)},
-    "siglip_rel_sensitive": {"never_miss": (0.15, 0.60), "balanced": (0.25, 0.60), "fewer": (0.35, 0.55)},
     # subjective groups (moods, kinds of people, memes): only very clear cases are "sure"
     "siglip_rel_strict": {"never_miss": (0.20, 0.70), "balanced": (0.30, 0.70), "fewer": (0.40, 0.65)},
     "siglip_strict": {"never_miss": (0.08, 0.45), "balanced": (0.15, 0.45), "fewer": (0.25, 0.40)},
@@ -36,9 +35,16 @@ STRICT_GROUPS = ("mood", "people", "entertainment")
 
 
 def source_key(src: str, grp: str) -> str:
-    """Private content and subjective groups use their own thresholds."""
-    if grp == "sensitive" and f"{src}_sensitive" in THRESHOLDS:
-        return f"{src}_sensitive"
+    """Private content and subjective groups use their own thresholds.
+
+    Private content counts only SigLIP's absolute probability and NudeNet: relative scores (a
+    softmax against "ordinary photo" prompts) push ordinary photos and documents into Private, so
+    a stored relative score is ignored (the key returned isn't in THRESHOLDS).
+    """
+    if grp == "sensitive":
+        if f"{src}_sensitive" in THRESHOLDS:
+            return f"{src}_sensitive"
+        return src if src == "nudenet" else f"{src}_ignored"
     if grp in STRICT_GROUPS and f"{src}_strict" in THRESHOLDS:
         return f"{src}_strict"
     return src
@@ -150,6 +156,8 @@ class Labels:
         best, score, src_best = "no", 0.0, None
         for src, v in values.items():
             source = source_key(src, grp)
+            if source not in THRESHOLDS:
+                continue
             t = self.tier_of(source, v, mode)
             if order[t] > order[best] or (t == best and v > score):
                 best, score, src_best = t, v, src
@@ -224,6 +232,8 @@ class Labels:
         best, score = "no", 0.0
         for src, v in values.items():
             source = source_key(src, grp)
+            if source not in THRESHOLDS:
+                continue
             t = self.tier_of(source, v, mode)
             if order[t] > order[best] or (t == best and v > score):
                 best, score = t, v
