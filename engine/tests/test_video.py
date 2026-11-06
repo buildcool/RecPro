@@ -143,3 +143,16 @@ def test_video_pass_people_spans_private_spans_and_scenes(ctx, tmp_path, monkeyp
         db.x("UPDATE faces SET person_id=?, state='confirmed' WHERE id=?", (pid, faces[0]["id"]))
         VideoStage(ctx).process([db.q1("SELECT * FROM media WHERE id=?", (mid,))])
         assert db.scalar("SELECT COUNT(*) FROM faces WHERE media_id=? AND person_id=? AND state='confirmed'", (mid, pid)) == 1
+
+    # Find says where in the video the person is
+    from recpro.review.search import search_people
+
+    if pid is not None:
+        priv = ctx.services["private"]
+        assert search_people(ctx, [pid])["hidden_private"] == 1, "the video is private: hidden while locked"
+        priv.setup("2468", "pin")
+        priv.set_toggles(None, True)  # unlocked, shown everywhere
+        res = search_people(ctx, [pid])
+        hit = next(h for h in res["sure"] + res["check"] if h["id"] == mid)
+        assert [(s["start_ms"], s["end_ms"]) for s in hit["spans"]] == [(0, 2000), (6000, 8000)]
+        assert hit["at_ms"] == 0 and hit["spans"][0]["name"] == "Test Red"

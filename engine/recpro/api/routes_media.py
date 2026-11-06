@@ -209,6 +209,14 @@ def media_detail(media_id: int, c: Context = Depends(ctx)) -> dict[str, Any]:
     d = {k: r[k] for k in r.keys() if k not in ("phash", "quick_hash", "content_hash")}
     d["faces"] = [dict(f) for f in faces]
     d["labels"] = [dict(l) for l in labels]
+    if r["kind"] == "video":
+        from ..review.moments import face_spans, label_spans
+
+        fs = face_spans(c.db, [f["id"] for f in faces])
+        for f in d["faces"]:
+            f["spans"] = [{"start_ms": s, "end_ms": e} for s, e in fs.get(f["id"], [])]
+        # a private video only gets this far while Private is unlocked
+        d["label_spans"] = label_spans(c.db, [media_id], [l["label_id"] for l in labels]).get(media_id, [])
     d["text"] = text
     return d
 

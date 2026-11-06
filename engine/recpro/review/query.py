@@ -160,6 +160,7 @@ def run(c: Context, q: str, overrides: dict[str, Any] | None = None, limit: int 
     taken = {r["id"]: r["taken_at"] or 0 for r in rows}
 
     scores: dict[int, tuple[str, float]] = {mid: ("sure", 1.0) for mid in cand}
+    moments: dict[int, dict[str, Any]] = {}  # videos: where the match is
     # people narrow the set (all named people together)
     if p["people"] and cand:
         from .search import search_people
@@ -182,6 +183,33 @@ def run(c: Context, q: str, overrides: dict[str, Any] | None = None, limit: int 
             hits = [h for h in hits if h["face_id"] in ok_faces]
         tiers = {h["id"]: (h["tier"], h["score"]) for h in hits}
         scores = {mid: tiers[mid] for mid in cand if mid in tiers}
+        moments = {h["id"]: {"spans": h["spans"], "at_ms": h["at_ms"]} for h in hits if h.get("spans")}
+    if face_conds and not p["people"] and scores:
+        # "old men", "smiling kids": in a video, when the faces that match are on screen
+        from .moments import face_spans
+
+        vids = [r["id"] for r in db.q(f"SELECT id FROM media WHERE kind='video' AND id IN ({','.join('?' * len(scores))})", list(scores))] if len(scores) < 30000 else []
+        if vids:
+            fq = db.q(
+                f"""SELECT f.id, f.media_id FROM faces f WHERE f.media_id IN ({','.join('?' * len(vids))}) AND f.quality >= 0.25
+                    AND {' AND '.join(face_conds)}""",
+                [*vids, *fparams],
+            )
+            fs = face_spans(db, [r["id"] for r in fq])
+            label = " ".join(w for w in q.split() if w)
+            for r in fq:
+                sp = [{"name": label, "start_ms": s, "end_ms": e} for s, e in fs.get(r["id"], [])]
+                if sp:
+                    cur = moments.setdefault(r["media_id"], {"spans": []})
+                    cur["spans"] = sorted(cur["spans"] + sp, key=lambda x: x["start_ms"])
+                    cur["at_ms"] = cur["spans"][0]["start_ms"]
+    if p["labels"] and scores:
+        from .moments import label_spans
+
+        vids = [r["id"] for r in db.q(f"SELECT id FROM media WHERE kind='video' AND id IN ({','.join('?' * len(scores))})", list(scores))] if len(scores) < 30000 else []
+        for mid, sp in label_spans(db, vids, [lab["id"] for lab in p["labels"]]).items():
+            if mid not in moments:
+                moments[mid] = {"spans": sp, "at_ms": sp[0]["start_ms"]}
     # free text via SigLIP 2 (only when it isn't just a category name we already applied)
     sem_text = p["text"] if not p["labels"] else ""
     text_hits: set[int] = set()
@@ -195,17 +223,19 @@ def run(c: Context, q: str, overrides: dict[str, Any] | None = None, limit: int 
             # temperature (absolute SigLIP probabilities stay low for short queries).
             T = model.embed_texts([sem_text, f"a photo of {sem_text}"])
             B = model.embed_texts([b for b in GENERIC_BG if b.lower() != sem_text.lower()])
-            ids, s1 = index.scores(T[0], list(scores))  # type: ignore[attr-defined]
-            _, s2 = index.scores(T[1], list(scores))  # type: ignore[attr-defined]
-            sq = np.maximum(s1, s2)
-            sb = np.stack([index.scores(b, list(scores))[1] for b in B], axis=1)  # type: ignore[attr-defined]
-            logits = model.scale * np.concatenate([sq[:, None], sb], axis=1)
-            logits -= logits.max(axis=1, keepdims=True)
-            ex = np.exp(logits)
-            prob = ex[:, 0] / ex.sum(axis=1)
+            ids, E = index.rows(list(scores))  # type: ignore[attr-defined]
+            best = dict(zip(ids.tolist(), _relative(model, E, T, B).tolist())) if len(ids) else {}
+            # videos: every scene frame competes; the best one says where the match is
+            owners, times, Ef = index.frame_matrix(list(scores))  # type: ignore[attr-defined]
+            if len(owners):
+                pf = _relative(model, Ef, T, B)
+                for mid, t, pr in zip(owners.tolist(), times.tolist(), pf.tolist()):
+                    if pr > best.get(mid, -1.0):
+                        best[mid] = pr
+                        moments[mid] = {"at_ms": t, "spans": [{"name": sem_text, "start_ms": t, "end_ms": t + 2000}]}
             sure_t, check_t = _text_thresholds(c)
             new: dict[int, tuple[str, float]] = {}
-            for mid, pr in zip(ids.tolist(), prob.tolist()):
+            for mid, pr in best.items():
                 base_tier, base_s = scores[mid]
                 if pr >= sure_t:
                     tier = base_tier
@@ -242,11 +272,22 @@ def run(c: Context, q: str, overrides: dict[str, Any] | None = None, limit: int 
         it = item_dict(r, chk, blur)
         it["tier"], it["score"] = tier, round(s, 3)
         it["text_match"] = mid in text_hits
+        if mid in moments:
+            it.update(moments[mid])
         (sure if tier == "sure" else check).append(it)
     hidden = 0
     if hide:
         hidden = db.scalar("SELECT COUNT(*) FROM media WHERE state='active' AND sens_state IN ('private','review')", default=0) if (p["sensitive"]) else 0
     return {"query": q, "parsed": p, "sure": sure, "check": check, "hidden_private": hidden, "took_ms": int((time.time() - t0) * 1000)}
+
+
+def _relative(model: Any, E: np.ndarray, T: np.ndarray, B: np.ndarray) -> np.ndarray:
+    """The description against "nothing special" descriptions, at SigLIP's temperature, per row."""
+    sq = np.maximum(E @ T[0], E @ T[1])
+    logits = model.scale * np.concatenate([sq[:, None], E @ B.T], axis=1)
+    logits -= logits.max(axis=1, keepdims=True)
+    ex = np.exp(logits)
+    return ex[:, 0] / ex.sum(axis=1)
 
 
 def _text_thresholds(c: Context) -> tuple[float, float]:

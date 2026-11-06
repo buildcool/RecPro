@@ -53,7 +53,10 @@ def search_people(
     )
     scanned = db.scalar(f"SELECT COUNT(*) FROM media m WHERE {where}", params, default=0)
     pending = db.scalar(
-        f"SELECT COUNT(*) FROM media m WHERE {where} AND m.kind='image' AND m.width IS NOT NULL AND m.deep_v < 1", params, default=0
+        f"""SELECT COUNT(*) FROM media m WHERE {where} AND m.width IS NOT NULL
+            AND ((m.kind='image' AND m.deep_v < 1) OR (m.kind='video' AND m.video_v < 1))""",
+        params,
+        default=0,
     )
     # Process what's being searched first
     if pending:
@@ -123,6 +126,11 @@ def search_people(
         return out
 
     per_target = [(key, pid, tier_for(pid, E)) for key, pid, E in targets]
+    # every searched person's face in a media (a video shows when each is on screen)
+    matched: dict[int, set[tuple[int, int | None]]] = {}
+    for _, pid, d in per_target:
+        for mid, (_, _, fid) in d.items():
+            matched.setdefault(mid, set()).add((fid, pid if pid is not None else by_face[fid]["person_id"]))
     combined: dict[int, dict[str, Any]] = {}
     if mode == "all" and per_target:
         common = set(per_target[0][2])
@@ -169,6 +177,9 @@ def search_people(
     names = {r["id"]: r["name"] for r in db.q("SELECT id, name FROM people")}
     from ..api.routes_media import item_dict
     from ..api.visibility import check_pending
+    from .moments import people_moments
+
+    moments = people_moments(db, {m: matched.get(m, set()) for m in mids if rows.get(m) is not None and rows[m]["kind"] == "video"}, names)
 
     chk = check_pending(c)
     hidden_private = 0
@@ -191,6 +202,7 @@ def search_people(
                 "person_id": v["person_id"],
                 "person_name": names.get(v["person_id"]),
                 "folder": folder,
+                **moments.get(mid, {}),
             }
         )
         g = groups.setdefault(folder, {"folder": folder, "sure": 0, "check": 0})
