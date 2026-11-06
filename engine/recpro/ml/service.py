@@ -74,6 +74,23 @@ class ML:
                 self._engines["emotion"] = m
             return m
 
+    def ocr(self):
+        if not self.has("ocr"):
+            return None
+        langs = tuple(self.ctx.settings.get("ocr.languages", ["en", "hi"]) or ["en"])
+        key = f"ocr:{','.join(langs)}"
+        with self._lock:
+            m = self._engines.get(key)
+            if m is None:
+                from .ocr import OCR
+
+                # the languages changed: free the old reader's GPU memory first
+                for k in [k for k in self._engines if k.startswith("ocr:")]:
+                    del self._engines[k]
+                m = OCR(self.models.path("ocr"), use_gpu=self.use_gpu, languages=langs)
+                self._engines[key] = m
+            return m
+
     def semantic_id(self) -> str | None:
         """Which SigLIP model to use: the profile's choice if installed, else whichever is."""
         prefer = "siglip2" if self.ctx.settings.get("models.profile", "best") == "best" else "siglip2-fast"

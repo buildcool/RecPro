@@ -120,6 +120,18 @@ MODELS: list[ModelSpec] = [
         required_files=("enet_b2_8.onnx",),
     ),
     ModelSpec(
+        id="ocr",
+        name="Text reading (PaddleOCR PP-OCRv5, English + Hindi/Marathi)",
+        purpose="Reads text in photos and screenshots; finds ID documents",
+        license="Apache-2.0",
+        profiles=("best", "fast"),
+        approx_size=101_000_000,
+        folder="ocr",
+        hf_repo="monkt/paddleocr-onnx",
+        hf_subdirs=("detection/v5", "languages/english", "languages/hindi"),
+        required_files=("detection/v5/det.onnx", "languages/english/rec.onnx", "languages/english/dict.txt"),
+    ),
+    ModelSpec(
         id="nudenet",
         name="Private content detector (NudeNet 640m)",
         purpose="Finds nudity and suggestive content for the Private section",
