@@ -1,6 +1,6 @@
 import { clsx } from 'clsx';
 import { Check, EyeOff, ImageOff, Lock, Play, Users } from 'lucide-react';
-import { memo, type MouseEvent } from 'react';
+import { memo, type MouseEvent, useRef, useState } from 'react';
 import { mediaUrl } from '../../lib/api';
 import { bridge } from '../../lib/bridge';
 import { duration } from '../../lib/format';
@@ -18,7 +18,10 @@ type Props = {
 };
 
 export const Thumb = memo(function Thumb({ item, box, selected, selecting, onActivate, onToggle, badge }: Props) {
-  const hidden = item.priv || item.chk;
+  const [peek, setPeek] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  // Private items stay blurred; press and hold to peek (only possible while Private is unlocked)
+  const hidden = (item.priv && !peek) || item.chk;
   return (
     <div
       role="button"
@@ -37,7 +40,19 @@ export const Thumb = memo(function Thumb({ item, box, selected, selecting, onAct
           onToggle(item, e as unknown as MouseEvent);
         }
       }}
-      draggable={!!bridge}
+      onPointerDown={(e) => {
+        if (!item.priv || e.button !== 0) return;
+        timer.current = window.setTimeout(() => setPeek(true), 250);
+      }}
+      onPointerUp={() => {
+        window.clearTimeout(timer.current);
+        setPeek(false);
+      }}
+      onPointerLeave={() => {
+        window.clearTimeout(timer.current);
+        setPeek(false);
+      }}
+      draggable={!!bridge && !item.priv}
       onDragStart={(e) => {
         if (!bridge) return;
         e.preventDefault();

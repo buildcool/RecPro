@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { Compass, Lock } from 'lucide-react';
+import { Compass } from 'lucide-react';
 import { lazy, Suspense, useEffect } from 'react';
 import { createHashRouter, Navigate, Outlet, RouterProvider, useLocation } from 'react-router';
 import { AppShell } from './app/AppShell';
 import { Spinner } from './components/ui';
-import { usePrivateHotkeys } from './features/private/PrivateLock';
+import { usePrivateActivity, usePrivateHotkeys } from './features/private/PrivateLock';
 import { get } from './lib/api';
 import { setTheme, type ThemePref } from './lib/theme';
 import type { Settings } from './lib/types';
@@ -20,6 +20,7 @@ const PeoplePage = lazyPage('PeoplePage', () => import('./pages/People'));
 const PersonPage = lazyPage('PersonPage', () => import('./pages/Person'));
 const ReviewPage = lazyPage('ReviewPage', () => import('./pages/Review'));
 const FindPage = lazyPage('FindPage', () => import('./pages/Find'));
+const PrivatePage = lazyPage('PrivatePage', () => import('./pages/Private'));
 const Folders = lazyPage('FoldersPage', () => import('./pages/Folders'));
 const Settings = lazyPage('SettingsPage', () => import('./pages/Settings'));
 const Onboarding = lazyPage('OnboardingPage', () => import('./pages/Onboarding'));
@@ -28,6 +29,7 @@ function Gate() {
   const loc = useLocation();
   const { data: settings, isLoading } = useQuery({ queryKey: ['settings'], queryFn: () => get<Settings>('/api/settings'), retry: 30, retryDelay: 1000 });
   usePrivateHotkeys();
+  usePrivateActivity();
   useEffect(() => {
     if (settings?.theme) setTheme(settings.theme as ThemePref);
   }, [settings?.theme]);
@@ -71,7 +73,7 @@ const router = createHashRouter([
           { path: '/find', element: <Page><FindPage /></Page> },
           { path: '/explore', element: <Placeholder title="Explore" icon={<Compass className="size-6" />} /> },
           { path: '/review', element: <Page><ReviewPage /></Page> },
-          { path: '/private', element: <Placeholder title="Private" icon={<Lock className="size-6" />} /> },
+          { path: '/private', element: <Page><PrivatePage /></Page> },
           { path: '/folders', element: <Page><Folders /></Page> },
           { path: '/history', element: <Page><HistoryPage /></Page> },
           { path: '/settings', element: <Page><Settings /></Page> },

@@ -33,6 +33,25 @@ export function usePrivateState() {
   });
 }
 
+/** While unlocked, tell the engine you're active (it locks after the chosen idle time). */
+export function usePrivateActivity() {
+  const unlocked = useLive((s) => !!s.privateState?.unlocked);
+  useEffect(() => {
+    if (!unlocked) return;
+    let last = 0;
+    const ping = () => {
+      const now = Date.now();
+      if (now - last < 20_000) return;
+      last = now;
+      void post('/api/private/activity').catch(() => undefined);
+    };
+    ping();
+    const evs = ['pointerdown', 'keydown', 'wheel', 'pointermove'] as const;
+    evs.forEach((e) => window.addEventListener(e, ping, { passive: true }));
+    return () => evs.forEach((e) => window.removeEventListener(e, ping));
+  }, [unlocked]);
+}
+
 /** Global: Ctrl+L locks instantly; Windows lock/sleep locks too. */
 export function usePrivateHotkeys() {
   useEffect(() => {
@@ -91,7 +110,13 @@ export function PrivateUnlockDialog() {
         description: `It locks again after ${next.autoLockMinutes} minutes of inactivity, when Windows locks, or with Ctrl+L.`,
       });
     } catch (e) {
-      setErr(e instanceof ApiError && e.status === 403 ? (st?.kind === 'password' ? 'Wrong password.' : 'Wrong PIN.') : (e as Error).message);
+      setErr(
+        e instanceof ApiError && e.status === 403
+          ? st?.kind === 'password'
+            ? 'Wrong password.'
+            : 'Wrong PIN.'
+          : (e as Error).message,
+      );
     } finally {
       setBusy(false);
     }

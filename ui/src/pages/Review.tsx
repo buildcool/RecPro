@@ -10,6 +10,7 @@ import { FaceAvatar } from '../features/people/FaceAvatar';
 import { NameInput } from '../features/people/NameInput';
 import { answerFaces, namePerson } from '../features/people/actions';
 import { useViewer } from '../features/viewer/viewerStore';
+import { SensitiveReview } from '../features/private/SensitiveReview';
 import { get, mediaUrl, post } from '../lib/api';
 import { num } from '../lib/format';
 import { type Brief, type ReviewFaces, useReviewCounts } from '../lib/people';
@@ -22,6 +23,7 @@ export function ReviewPage() {
     ['faces', 'Is this…?', counts?.faces],
     ['merge', 'Same person?', counts?.merge],
     ['name', 'Who is this?', counts?.name],
+    ['private', 'Private', counts?.sensitive],
   ];
   return (
     <div className="h-full overflow-y-auto">
@@ -50,6 +52,9 @@ export function ReviewPage() {
         </Tabs.Content>
         <Tabs.Content value="name">
           <NameQuestions />
+        </Tabs.Content>
+        <Tabs.Content value="private">
+          <SensitiveReview />
         </Tabs.Content>
       </Tabs.Root>
     </div>

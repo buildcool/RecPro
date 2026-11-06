@@ -94,6 +94,14 @@ A face is never *Sure* when its quality is below 0.35 or when a second person sc
 
 **Index.** Face embeddings live in a growable in-memory float16 index (`review/faceindex.py`) loaded at startup, so matching a person against the library is a chunked matrix multiplication.
 
+## Private content (`jobs/sens.py`, `jobs/semantic.py`, `labels.py`, `private.py`)
+
+**Stages.** The indexer runs `quick → sens → deep → semantic`, so the private check happens right after thumbnails and before faces. `sens` runs NudeNet 640m on each photo decoded at up to 1280 px (plus 4 overlapping tiles for photos of 1400 px or more) and on 3 frames of each video. It decodes boxes, applies per-class NMS, and drops exposed-part detections centered on a face (NudeNet's own face boxes plus SCRFD). `semantic` embeds each photo with SigLIP 2 (stored in `embeddings` for search) and scores prompt ensembles with SigLIP's own sigmoid (`logit_scale`/`logit_bias` read from the official checkpoint).
+
+**Labels and tiers.** Every source has its own (check, sure) thresholds per sensitivity (`labels.THRESHOLDS`); a label's tier is the best tier any source reaches, and the per-source values are stored, so `retier()` can apply new thresholds or a new sensitivity without re-analysis. `update_sens_state` derives `clear`, `review` or `private` from the sensitive labels: a confirmed label means private; all rejected means clear; otherwise AI *Sure* means private and AI *Please check* means review. Both `private` and `review` are hidden like private content.
+
+**Lock.** The PIN or password is stored as an Argon2id hash. An X25519 key pair is created at setup; the private key is encrypted with a key derived from the secret (Argon2id raw, 64 MiB) and only decrypted in memory on unlock. When an item becomes private, its plain thumbnail, preview and face crops are deleted, and thumbnails and previews are written as sealed boxes, which the engine can create while locked but only read while unlocked. While locked, thumbnails return a lock placeholder, details/previews/originals return 423, private listings are refused, and every listing and search leaves private items out (Find reports how many). After unlocking, *Blur* and *Show private items everywhere* are in-memory toggles reset by every lock. Auto-lock fires after the chosen idle time (the UI sends activity pings), on Windows lock or sleep, on Ctrl+L and on restart. Five wrong tries within 5 minutes impose a 30-second wait. *Forgot your PIN?* deletes the keys, private labels and sealed images, then re-checks everything.
+
 ## File operations (`ops/service.py`)
 
 The copy-and-move engine is the part that must never lose a file. Its guarantees, each covered by `engine/tests/test_ops.py`:
