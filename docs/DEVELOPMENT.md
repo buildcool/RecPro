@@ -61,6 +61,40 @@ Tests do the same automatically with a temporary folder.
 engine/.venv/Scripts/python scripts/make_samples.py .testdata/samples
 ```
 
+### Keep downloads and caches on D:
+
+This project keeps every download off C:. Before installing Python packages, point uv's cache and temp folders into the repository (npm already uses `.cache/npm` through the project `.npmrc`):
+
+```bash
+export UV_CACHE_DIR='D:\Claude\github\RecPro\.cache\uv' TEMP='D:\Claude\github\RecPro\.cache\tmp' TMP='D:\Claude\github\RecPro\.cache\tmp'
+```
+
+AI models download into the engine's data folder (`.devdata\models` in development), never to a user cache.
+
+### AI models
+
+Open Settings → AI models and choose Download, or call the API:
+
+```bash
+curl -s -H "X-RecPro-Token: devtoken" -H "Content-Type: application/json" -X POST http://127.0.0.1:47321/api/models/download -d '{"profile":"best"}'
+```
+
+### Accuracy check (LFW)
+
+`scripts/lfw_subset.py` builds a two-folder library from the public LFW archive (10 people × 40 photos plus 300 strangers) and `scripts/eval_lfw.py` measures grouping completeness/purity and Find recall/precision before and after answering the Review questions with the ground truth:
+
+```bash
+engine/.venv/Scripts/python -I scripts/lfw_subset.py .testdata/lfw/lfw.tgz .testdata/lfw-lib
+```
+
+Add `.testdata/lfw-lib/FolderA` and `FolderB` as library folders, then:
+
+```bash
+engine/.venv/Scripts/python -I scripts/eval_lfw.py http://127.0.0.1:47321 devtoken .testdata/lfw-lib .devdata/recpro.db
+```
+
+LFW labels only the centered face, so a match on a person standing in the background of someone else's photo counts as a "mistake" in the raw numbers even when it's right.
+
 ## Tests
 
 ```bash

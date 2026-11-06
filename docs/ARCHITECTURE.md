@@ -66,6 +66,34 @@ The UI's status bar and Home page show per-stage progress and rate; folders bein
 
 Your answers (`face_votes`, confirmed/rejected states) are never overwritten by re-indexing or model upgrades.
 
+## AI models (`ml/models.py`)
+
+Models are listed in a manifest with their purpose, license and profiles (*best* or *fast*). The downloader writes `.part` files into the data folder, resumes after dropped connections (HTTP Range, five attempts), rejects HTML responses (sign-in pages), and verifies every file: a pinned SHA-256 for release assets, the LFS SHA-256 or git blob SHA-1 from the Hugging Face API for repository files. A `.verified` marker records a complete install. *Strict offline* blocks the downloader entirely.
+
+`ml/runtime.py` creates ONNX Runtime sessions on CUDA (cuDNN 9, CUDA libraries installed as Python packages and preloaded) with CPU fallback.
+
+## Faces and people (`ml/faces.py`, `review/`)
+
+**Pipeline (deep pass).** Each photo is decoded once at up to 2048 px. SCRFD-10G detects faces at 640 px and, for larger photos, at 1280 px for small faces in group shots; detections are merged with NMS and kept down to a 0.40 score, so weak faces are asked about instead of dropped. Each face is aligned from its 5 landmarks (Umeyama similarity transform) and embedded with ArcFace R100 (antelopev2 `glintr100`), averaging the face and its mirror image. Age/gender come from `genderage.onnx`, and a quality score combines size, detector confidence, pose (yaw/roll from landmarks) and sharpness (Laplacian variance). When a photo is analyzed again, confirmed answers move to the re-detected face at the same spot.
+
+**Matching.** A person is the set of their confirmed, sure and grouped faces (up to 200, best first) plus reference photos you provided. A face's score for a person is the mean of its 3 highest cosine similarities to those faces, so childhood and adult photos both match. Thresholds come from *How often RecPro asks you*:
+
+| Setting | Sure ≥ | Please check ≥ |
+|---|---|---|
+| Never miss | 0.50 | 0.22 |
+| Balanced | 0.47 | 0.28 |
+| Fewer questions | 0.44 | 0.34 |
+
+A face is never *Sure* when its quality is below 0.35 or when a second person scores within 0.06. There's only one face per person per photo, and a face you confirmed for someone is never offered for anyone else. Once there are enough answers (8 yes, 5 no), a logistic fit of your answers against the score shifts the thresholds; *Never miss* can only become more careful.
+
+**Grouping.** Unassigned faces of reasonable quality are linked to their mutual nearest neighbours above 0.48 similarity (never two faces of the same photo). Connected groups of at least 3 faces become *unnamed people*, keeping one face per photo. Unnamed groups whose centres are above 0.62 merge automatically; pairs above 0.40 become "Same person?" questions. New faces join an unnamed group above 0.50.
+
+**Answers.** Yes confirms and records a vote; No records a vote that is never overridden and frees the face for other people. After each answer the person is re-scored across the whole library, which is how one answer settles similar photos. The last 30 answers can be undone. Review shows the faces closest to a coin flip first, one per near-duplicate photo.
+
+**Find** (`review/search.py`) scores every face in the chosen folders against each chosen person (or reference photo), combines them for *any*, *all together* or *alone*, and returns *Sure* and *Please check* tiers grouped by folder, plus the number of hidden private matches. Folders still being analyzed are processed first.
+
+**Index.** Face embeddings live in a growable in-memory float16 index (`review/faceindex.py`) loaded at startup, so matching a person against the library is a chunked matrix multiplication.
+
 ## File operations (`ops/service.py`)
 
 The copy-and-move engine is the part that must never lose a file. Its guarantees, each covered by `engine/tests/test_ops.py`:
