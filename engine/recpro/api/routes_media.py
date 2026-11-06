@@ -30,9 +30,12 @@ def _filters(
     where = ["m.state='active'"]
     params: list[Any] = []
     if private_only:
-        where.append("m.sens_state='private'")
+        priv = c.services.get("private")
+        if not (priv and priv.is_unlocked()):  # type: ignore[attr-defined]
+            raise HTTPException(423, "Unlock Private to see these items.")
+        where.append("m.sens_state IN ('private','review')")
     elif private_hidden(c):
-        where.append("m.sens_state != 'private'")
+        where.append("m.sens_state NOT IN ('private','review')")
     if folder_id is not None:
         where.append("m.folder_id=?")
         params.append(folder_id)
@@ -62,7 +65,7 @@ def item_dict(r: Any, chk_pending: bool, priv_blur: bool) -> dict[str, Any]:
         "t": r["taken_at"],
         "dur": r["duration"],
         "faces": r["face_count"],
-        "priv": bool(priv_blur and r["sens_state"] == "private"),
+        "priv": bool(priv_blur and r["sens_state"] in ("private", "review")),
         "chk": bool(chk_pending and r["sens_state"] == "unchecked"),
         "v": r["quick_v"],
         "err": bool(r["error"]) and r["quick_v"] > 0 and not r["width"],
@@ -162,7 +165,7 @@ def media_paths(body: dict[str, Any], c: Context = Depends(ctx)) -> dict[str, st
     for i in range(0, len(ids), 900):
         chunk = ids[i : i + 900]
         for r in c.db.q(f"SELECT id, path, sens_state FROM media WHERE state='active' AND id IN ({','.join('?' * len(chunk))})", chunk):
-            if r["sens_state"] == "private" and hide and not unlocked:
+            if r["sens_state"] in ("private", "review") and hide and not unlocked:
                 continue
             out[str(r["id"])] = r["path"]
     return out
@@ -176,7 +179,7 @@ def media_detail(media_id: int, c: Context = Depends(ctx)) -> dict[str, Any]:
     )
     if r is None:
         raise HTTPException(404, "Not found")
-    if r["sens_state"] == "private" and private_hidden(c):
+    if r["sens_state"] in ("private", "review") and private_hidden(c):
         priv = c.services.get("private")
         if not (priv and priv.is_unlocked()):  # type: ignore[attr-defined]
             raise HTTPException(423, "This item is private. Unlock Private to see it.")
@@ -214,7 +217,7 @@ def _row(c: Context, media_id: int) -> Any:
 
 
 def _locked_private(c: Context, r: Any) -> bool:
-    if r["sens_state"] != "private":
+    if r["sens_state"] not in ("private", "review"):
         return False
     priv = c.services.get("private")
     return not (priv and priv.is_unlocked())  # type: ignore[attr-defined]
@@ -230,7 +233,7 @@ def _private_bytes(c: Context, kind: str, media_id: int) -> bytes | None:
 @router.get("/media/thumb/{media_id}")
 def thumb(media_id: int, c: Context = Depends(ctx)) -> Response:
     r = _row(c, media_id)
-    if r["sens_state"] == "private":
+    if r["sens_state"] in ("private", "review"):
         if _locked_private(c, r):
             return Response(LOCKED_SVG, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
         data = _private_bytes(c, "thumb", media_id)
@@ -247,7 +250,7 @@ def preview(media_id: int, c: Context = Depends(ctx)) -> Response:
     r = _row(c, media_id)
     if _locked_private(c, r):
         raise HTTPException(423, "Private item")
-    if r["sens_state"] == "private":
+    if r["sens_state"] in ("private", "review"):
         data = _private_bytes(c, "preview", media_id)
         if data is not None:
             return Response(data, media_type="image/webp", headers={"Cache-Control": "no-store"})
@@ -264,7 +267,7 @@ def preview(media_id: int, c: Context = Depends(ctx)) -> Response:
             raise HTTPException(404, "The original file is missing. Its drive may be disconnected.")
         except Exception as e:
             raise HTTPException(415, f"Can't open this file: {e}")
-        if r["sens_state"] == "private":
+        if r["sens_state"] in ("private", "review"):
             priv = c.services.get("private")
             if priv is not None:
                 data = priv.store_cached("preview", media_id, disp)  # type: ignore[attr-defined]
@@ -327,12 +330,12 @@ def face_crop(face_id: int, size: int = Query(160, ge=48, le=512), c: Context = 
     f = c.db.q1("SELECT f.*, m.sens_state, m.path, m.kind, m.duration, m.mtime FROM faces f JOIN media m ON m.id=f.media_id WHERE f.id=?", (face_id,))
     if f is None:
         raise HTTPException(404, "Not found")
-    if f["sens_state"] == "private":
+    if f["sens_state"] in ("private", "review"):
         priv = c.services.get("private")
         if not (priv and priv.is_unlocked()):  # type: ignore[attr-defined]
             return Response(LOCKED_SVG, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
     cache = c.paths.faces / f"{face_id // 1000:04d}" / f"{face_id}_{size}.webp"
-    if f["sens_state"] != "private" and cache.exists():
+    if f["sens_state"] not in ("private", "review") and cache.exists():
         return FileResponse(cache, media_type="image/webp", headers=CACHE)
     from ..library.facecrop import crop_face
 
@@ -340,7 +343,7 @@ def face_crop(face_id: int, size: int = Query(160, ge=48, le=512), c: Context = 
         img = crop_face(c, f, size)
     except FileNotFoundError:
         return Response(PENDING_SVG, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
-    if f["sens_state"] == "private":
+    if f["sens_state"] in ("private", "review"):
         from ..library.imaging import webp_bytes
 
         return Response(webp_bytes(img, size, 82), media_type="image/webp", headers={"Cache-Control": "no-store"})

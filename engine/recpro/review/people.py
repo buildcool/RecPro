@@ -691,7 +691,7 @@ class People:
                     "score": round(float(r["score"] or 0), 3),
                     "probability": round(self.probability(r["score"] or 0), 3),
                     "quality": r["quality"],
-                    "private": r["sens_state"] == "private",
+                    "private": r["sens_state"] in ("private", "review"),
                 }
             )
             if len(items) >= limit:

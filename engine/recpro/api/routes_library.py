@@ -90,7 +90,7 @@ def stats(c: Context = Depends(ctx)) -> dict[str, Any]:
     db = c.db
     priv = c.services.get("private")
     hide_private = not (priv and priv.visible_everywhere())  # type: ignore[attr-defined]
-    hidden_clause = " AND sens_state != 'private'" if hide_private else ""
+    hidden_clause = " AND sens_state NOT IN ('private','review')" if hide_private else ""
     r = db.q1(
         f"""SELECT COALESCE(SUM(kind='image'),0) photos, COALESCE(SUM(kind='video'),0) videos, COALESCE(SUM(size),0) bytes
             FROM media WHERE state='active'{hidden_clause}"""
@@ -101,10 +101,10 @@ def stats(c: Context = Depends(ctx)) -> dict[str, Any]:
     rv = c.services.get("people")
     if rv is not None:
         try:
-            review = sum(rv.review_counts().values())  # type: ignore[attr-defined]
+            review = int(rv.review_counts().get("total", 0))  # type: ignore[attr-defined]
         except Exception:
             review = 0
-    private_hidden = db.scalar("SELECT COUNT(*) FROM media WHERE state='active' AND sens_state='private'", default=0) if hide_private else 0
+    private_hidden = db.scalar("SELECT COUNT(*) FROM media WHERE state='active' AND sens_state IN ('private','review')", default=0) if hide_private else 0
     return {
         "photos": r["photos"],
         "videos": r["videos"],

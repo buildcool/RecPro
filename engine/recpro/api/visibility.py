@@ -15,7 +15,7 @@ def visible_sql(c: Context, alias: str = "m") -> str:
     a = f"{alias}." if alias else ""
     cond = f"{a}state='active'"
     if private_hidden(c):
-        cond += f" AND {a}sens_state != 'private'"
+        cond += f" AND {a}sens_state NOT IN ('private','review')"
     return cond
 
 

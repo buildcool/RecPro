@@ -45,7 +45,7 @@ def _svc(c: Context):
 
 
 def _people_rows(c: Context, where: str, params: list[Any], limit: int) -> list[dict[str, Any]]:
-    priv = " AND m.sens_state != 'private'" if private_hidden(c) else ""
+    priv = " AND m.sens_state NOT IN ('private','review')" if private_hidden(c) else ""
     rows = c.db.q(
         f"""SELECT p.id, p.name, p.cover_face_id, p.hidden, p.birthdate, p.kind,
               (SELECT COUNT(DISTINCT f.media_id) FROM faces f JOIN media m ON m.id=f.media_id

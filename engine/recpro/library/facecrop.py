@@ -13,7 +13,7 @@ def crop_face(ctx, f: Any, size: int) -> Image.Image:
         img = video_frame(f["path"], f["frame_ms"] / 1000.0, max_side=1280)
     else:
         prev = shard(ctx.paths.previews, f["media_id"])
-        if prev.exists() and f["sens_state"] != "private":
+        if prev.exists() and f["sens_state"] not in ("private", "review"):
             img = Image.open(prev).convert("RGB")
         else:
             raw, img, _ = open_image(f["path"], want=PREVIEW_MAX)

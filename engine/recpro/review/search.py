@@ -178,7 +178,7 @@ def search_people(
         r = rows.get(mid)
         if r is None:
             continue
-        if r["sens_state"] == "private" and not show_private:
+        if r["sens_state"] in ("private", "review") and not show_private:
             hidden_private += 1
             continue
         folder = os.path.join(r["folder_path"], r["rel_dir"]) if r["rel_dir"] else r["folder_path"]
