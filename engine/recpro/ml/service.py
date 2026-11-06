@@ -50,6 +50,41 @@ class ML:
                 self._engines["faces"] = fa
             return fa
 
+    def nsfw(self):
+        if not self.has("nudenet"):
+            return None
+        with self._lock:
+            d = self._engines.get("nudenet")
+            if d is None:
+                from .nsfw import NudeDetector
+
+                d = NudeDetector(self.models.path("nudenet") / "640m.onnx", use_gpu=self.use_gpu)
+                self._engines["nudenet"] = d
+            return d
+
+    def semantic_id(self) -> str | None:
+        """Which SigLIP model to use: the profile's choice if installed, else whichever is."""
+        prefer = "siglip2" if self.ctx.settings.get("models.profile", "best") == "best" else "siglip2-fast"
+        for mid in (prefer, "siglip2", "siglip2-fast"):
+            if self.has(mid):
+                return mid
+        return None
+
+    def siglip(self):
+        mid = self.semantic_id()
+        if mid is None:
+            return None
+        with self._lock:
+            s = self._engines.get(mid)
+            if s is None:
+                from .models import spec
+                from .semantic import Siglip
+
+                p = spec(mid).params
+                s = Siglip(self.models.path(mid), use_gpu=self.use_gpu, logit_scale=p["logit_scale"], logit_bias=p["logit_bias"])
+                self._engines[mid] = s
+            return s
+
     def _on_installed(self, model_id: str) -> None:
         with self._lock:
             self._engines.pop(model_id, None)

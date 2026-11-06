@@ -49,6 +49,7 @@ class ModelSpec:
     hf_skip: tuple[str, ...] = ("rknpu",)
     folder: str = ""  # install folder (relative)
     required_files: tuple[str, ...] = ()  # relative to folder; presence = installed
+    params: dict = field(default_factory=dict)  # model constants not in the ONNX export
 
 
 GH = "https://github.com"
@@ -84,6 +85,8 @@ MODELS: list[ModelSpec] = [
         hf_repo="immich-app/ViT-SO400M-16-SigLIP2-384__webli",
         hf_subdirs=("visual", "textual", ""),
         required_files=("visual/model.onnx", "textual/model.onnx", "textual/tokenizer.json"),
+        # from timm/ViT-SO400M-16-SigLIP2-384 open_clip_model.safetensors (logit_scale is log-scale)
+        params={"logit_scale": 4.6991615, "logit_bias": -15.932409},
     ),
     ModelSpec(
         id="siglip2-fast",
@@ -96,6 +99,7 @@ MODELS: list[ModelSpec] = [
         hf_repo="immich-app/ViT-B-16-SigLIP2__webli",
         hf_subdirs=("visual", "textual", ""),
         required_files=("visual/model.onnx", "textual/model.onnx", "textual/tokenizer.json"),
+        params={"logit_scale": 4.7244534, "logit_bias": -16.771725},
     ),
     ModelSpec(
         id="nudenet",
