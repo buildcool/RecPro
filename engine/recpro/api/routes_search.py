@@ -26,6 +26,27 @@ class PeopleSearch(BaseModel):
     date_to: float | None = None
 
 
+class TextSearch(BaseModel):
+    q: str
+    overrides: dict[str, Any] | None = None
+
+
+@router.post("/api/search")
+def universal_search(body: TextSearch, c: Context = Depends(ctx)) -> dict[str, Any]:
+    from ..review.query import run
+
+    if not body.q.strip():
+        raise HTTPException(400, "Type what you're looking for.")
+    return run(c, body.q, body.overrides)
+
+
+@router.get("/api/search/parse")
+def parse_query(q: str, c: Context = Depends(ctx)) -> dict[str, Any]:
+    from ..review.query import parse
+
+    return parse(c, q)
+
+
 @router.post("/api/search/people")
 def people_search(body: PeopleSearch, c: Context = Depends(ctx)) -> dict[str, Any]:
     if not body.people and not body.ref_tokens:
