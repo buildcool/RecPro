@@ -18,6 +18,7 @@ export type TimelineFilters = {
   kind?: 'image' | 'video';
   person_id?: number;
   label_id?: number;
+  label_grp?: string;
   private_only?: boolean;
 };
 

@@ -1,4 +1,4 @@
-import { Cpu, FolderCog, Info, Lock, Palette, ShieldCheck, SlidersHorizontal, Copy } from 'lucide-react';
+import { Cpu, FolderCog, Info, Lock, Palette, ScanText, ShieldCheck, SlidersHorizontal, Copy } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Button, Card, PageHeader, Segmented, Switch } from '../components/ui';
@@ -116,6 +116,16 @@ export function SettingsPage() {
                 { value: 'rename', label: 'Keep both' },
                 { value: 'skip', label: 'Skip it' },
               ]}
+            />
+          </Row>
+        </Section>
+
+        <Section icon={<ScanText className="size-4" />} title="Text in photos" description="RecPro reads the words in documents and screenshots so you can search them. ID numbers are stored with all but the last 4 characters hidden.">
+          <Row label="Also read Hindi and Marathi" hint="English is always read">
+            <Switch
+              checked={(s['ocr.languages'] as string[] | undefined)?.includes('hi') ?? true}
+              onChange={(v) => set('ocr.languages', v ? ['en', 'hi'] : ['en'])}
+              label="Also read Hindi and Marathi"
             />
           </Row>
         </Section>

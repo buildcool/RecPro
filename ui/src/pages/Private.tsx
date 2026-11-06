@@ -18,6 +18,7 @@ const SECTIONS = [
   ['suggestive', 'Suggestive'],
   ['nudity', 'Nudity'],
   ['sexual', 'Sexual'],
+  ['ids', 'ID documents'],
   ['review', 'Please check'],
 ] as const;
 
@@ -107,7 +108,7 @@ export function PrivatePage() {
       </div>
       <Tabs.Root value={tab} onValueChange={setTab} className="mt-4">
         <Tabs.List className="inline-flex flex-wrap rounded-lg bg-surface-2 p-0.5" aria-label="Private sections">
-          {SECTIONS.map(([v, l]) => {
+          {SECTIONS.filter(([v]) => v !== 'ids' || s.counts.ids !== undefined).map(([v, l]) => {
             const n = v === 'all' ? s.counts.total : s.counts[v];
             return (
               <Tabs.Trigger
@@ -135,12 +136,12 @@ export function PrivatePage() {
       </div>
     );
 
-  const lid = tab === 'all' ? undefined : labelId(tab);
+  const lid = tab === 'all' || tab === 'ids' ? undefined : labelId(tab);
   return (
     <Timeline
       key={tab}
       scope={`private-${tab}`}
-      filters={{ private_only: true, ...(lid ? { label_id: lid } : {}) }}
+      filters={{ private_only: true, ...(lid ? { label_id: lid } : {}), ...(tab === 'ids' ? { label_grp: 'id' } : {}) }}
       header={header}
       empty={<EmptyState icon={<ShieldCheck className="size-6" />} title="Nothing here" body="Items RecPro finds for this section appear here." />}
     />
