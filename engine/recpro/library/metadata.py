@@ -7,8 +7,10 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 log = logging.getLogger("recpro.meta")
@@ -23,8 +25,17 @@ TAG_DATETIME_ORIGINAL = 0x9003
 TAG_DATETIME_DIGITIZED = 0x9004
 TAG_OFFSET_ORIGINAL = 0x9011
 
-_FFPROBE = shutil.which("ffprobe")
-_FFMPEG = shutil.which("ffmpeg")
+def _tool(name: str) -> str | None:
+    """ffmpeg/ffprobe: the copies bundled with the installed app first, then PATH."""
+    if getattr(sys, "frozen", False):
+        bundled = Path(sys.executable).parent / "bin" / (name + (".exe" if os.name == "nt" else ""))
+        if bundled.exists():
+            return str(bundled)
+    return shutil.which(name)
+
+
+_FFPROBE = _tool("ffprobe")
+_FFMPEG = _tool("ffmpeg")
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
@@ -50,8 +61,6 @@ def parse_exif_dt(s: Any, offset: Any = None) -> float | None:
         if isinstance(offset, str) and re.match(r"^[+-]\d{2}:\d{2}$", offset.strip()):
             sign = 1 if offset.strip()[0] == "+" else -1
             oh, om = (int(x) for x in offset.strip()[1:].split(":"))
-            from datetime import timedelta
-
             tz = timezone(sign * timedelta(hours=oh, minutes=om))
             return datetime(y, mo, d, h, mi, se, tzinfo=tz).timestamp()
         return time.mktime((y, mo, d, h, mi, se, 0, 0, -1))

@@ -19,6 +19,8 @@ router = APIRouter()
 
 @router.get("/api/health")
 def health(c: Context = Depends(ctx)) -> dict[str, Any]:
+    from ..library.metadata import ffmpeg_bin, ffprobe_bin
+
     gpu = None
     ml = c.services.get("ml")
     if ml is not None:
@@ -30,6 +32,8 @@ def health(c: Context = Depends(ctx)) -> dict[str, Any]:
         "localOnly": True,
         "strictOffline": bool(c.settings.get("privacy.strict_offline")),
         "gpu": gpu,
+        # videos need these; the installed app brings its own copies
+        "tools": {"ffmpeg": ffmpeg_bin(), "ffprobe": ffprobe_bin()},
     }
 
 

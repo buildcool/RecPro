@@ -20,6 +20,7 @@ class ML:
         self._lock = threading.Lock()
         self._engines: dict[str, Any] = {}
         self.models.on_installed.append(self._on_installed)
+        runtime.set_gpu_pack(self.models.path("gpu"))
 
     def start(self) -> None:
         self.models.start()
@@ -117,6 +118,11 @@ class ML:
     def _on_installed(self, model_id: str) -> None:
         with self._lock:
             self._engines.pop(model_id, None)
+            if model_id == "gpu":
+                # models loaded so far run on the processor: load them again on the graphics card
+                self._engines.clear()
+        if model_id == "gpu":
+            runtime.reload_gpu()
         if model_id == "emotion":
             # photos analyzed before the expression model arrived get their faces' expressions now
             self.ctx.db.x(

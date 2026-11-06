@@ -2,7 +2,8 @@
 
 Models are downloaded once, on request, into ``<data>/models``. Downloads resume after an
 interruption and every file is verified: pinned SHA-256 for release assets, the Hugging Face
-LFS SHA-256 (or git blob SHA-1 for small files) for repository files. Nothing is uploaded.
+LFS SHA-256 (or git blob SHA-1 for small files) for repository files, and PyPI's SHA-256 for
+the NVIDIA wheels of the GPU pack. Nothing is uploaded.
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ class FileSpec:
     size: int | None = None
     sha256: str | None = None
     git_sha1: str | None = None
-    archive: str | None = None  # "zip": extract into dest (a folder)
+    archive: str | None = None  # "zip": extract models into dest (a folder); "dlls": only the DLLs
     accept: str | None = None  # Accept header (GitHub API asset downloads need application/octet-stream)
 
 
@@ -50,11 +51,38 @@ class ModelSpec:
     folder: str = ""  # install folder (relative)
     required_files: tuple[str, ...] = ()  # relative to folder; presence = installed
     params: dict = field(default_factory=dict)  # model constants not in the ONNX export
+    pypi_wheels: tuple[tuple[str, str], ...] = ()  # (package, version): the DLLs of their Windows wheels
+    installed_app_only: bool = False  # offered only by the installed app on a PC with an NVIDIA GPU
 
 
 GH = "https://github.com"
 
+# The CUDA 13 and cuDNN 9 runtime that onnxruntime-gpu needs. Development gets it from the
+# "cuda" dependency group; the installed app downloads the same versions (a test keeps the two
+# in step with uv.lock).
+GPU_WHEELS: tuple[tuple[str, str], ...] = (
+    ("nvidia-cuda-runtime", "13.5.37"),
+    ("nvidia-cublas", "13.10.0.20"),
+    ("nvidia-cufft", "12.5.0.14"),
+    ("nvidia-curand", "10.4.5.25"),
+    ("nvidia-cuda-nvrtc", "13.5.37"),
+    ("nvidia-nvjitlink", "13.5.37"),
+    ("nvidia-cudnn-cu13", "9.28.0.42"),
+)
+
 MODELS: list[ModelSpec] = [
+    ModelSpec(
+        id="gpu",
+        name="GPU acceleration (NVIDIA CUDA 13 and cuDNN 9)",
+        purpose="Runs the AI on your NVIDIA graphics card, many times faster than on the processor",
+        license="NVIDIA CUDA and cuDNN runtime licenses (NVIDIA's own packages from PyPI)",
+        profiles=("best", "fast"),
+        approx_size=1_169_000_000,
+        folder="gpu/cuda13",
+        pypi_wheels=GPU_WHEELS,
+        required_files=("cudart64_13.dll", "cublas64_13.dll", "cublasLt64_13.dll", "cudnn64_9.dll"),
+        installed_app_only=True,
+    ),
     ModelSpec(
         id="faces",
         name="Face recognition (InsightFace antelopev2)",
@@ -162,6 +190,19 @@ def spec(model_id: str) -> ModelSpec:
     raise KeyError(model_id)
 
 
+def applies(m: ModelSpec) -> bool:
+    """The GPU pack only matters to the installed app on a PC with an NVIDIA card."""
+    if not m.installed_app_only:
+        return True
+    from .runtime import FROZEN, nvidia_driver
+
+    return FROZEN and nvidia_driver()
+
+
+def applicable() -> list[ModelSpec]:
+    return [m for m in MODELS if applies(m)]
+
+
 class ModelManager:
     def __init__(self, models_dir: Path, events, strict_offline: Callable[[], bool]):
         self.dir = Path(models_dir)
@@ -187,7 +228,7 @@ class ModelManager:
 
     def status(self) -> list[dict[str, Any]]:
         out = []
-        for m in MODELS:
+        for m in applicable():
             p = self._progress.get(m.id)
             out.append(
                 {
@@ -219,7 +260,8 @@ class ModelManager:
             raise PermissionError("Strict offline is on. Turn it off in Settings to download models.")
         with self._cv:
             for i in ids:
-                spec(i)
+                if not applies(spec(i)):
+                    continue
                 if not self.installed(i) and i not in self._queue and self._progress.get(i, {}).get("state") != "downloading":
                     self._queue.append(i)
             self._cv.notify()
@@ -273,6 +315,8 @@ class ModelManager:
         files = list(m.files)
         if m.hf_repo:
             files += self._hf_files(m)
+        if m.pypi_wheels:
+            files += self._pypi_files(m)
         total = sum(f.size or 0 for f in files)
         prog = {"state": "downloading", "bytes_done": 0, "bytes_total": total, "file": ""}
         self._progress[mid] = prog
@@ -281,10 +325,14 @@ class ModelManager:
         for f in files:
             prog["file"] = os.path.basename(f.dest)
             target = self.dir / f.dest
-            if f.archive == "zip":
+            if f.archive in ("zip", "dlls"):
                 zpath = self.dir / "downloads" / (os.path.basename(f.url))
-                self._download(mid, f, zpath, prog, done_before, pinned)
-                self._extract_zip(zpath, target)
+                if not (zpath.exists() and f.size and zpath.stat().st_size == f.size and self._verify(zpath, f, pinned)):
+                    self._download(mid, f, zpath, prog, done_before, pinned)
+                if f.archive == "dlls":
+                    self._extract_dlls(zpath, target)
+                else:
+                    self._extract_zip(zpath, target)
                 zpath.unlink(missing_ok=True)
             else:
                 if target.exists() and f.size and target.stat().st_size == f.size and self._verify(target, f, pinned, quick=True):
@@ -403,6 +451,32 @@ class ModelManager:
                     )
                 )
         return out
+
+    def _pypi_files(self, m: ModelSpec) -> list[FileSpec]:
+        """Each package's Windows wheel, with the size and SHA-256 that PyPI publishes."""
+        out: list[FileSpec] = []
+        for name, version in m.pypi_wheels:
+            req = urllib.request.Request(f"https://pypi.org/pypi/{name}/{version}/json", headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                info = json.loads(resp.read().decode("utf-8"))
+            wheel = next((u for u in info.get("urls", []) if u.get("filename", "").endswith("-win_amd64.whl")), None)
+            if wheel is None:
+                raise RuntimeError(f"{name} {version} has no Windows download on PyPI")
+            out.append(FileSpec(url=wheel["url"], dest=m.folder, size=wheel["size"], sha256=wheel["digests"]["sha256"], archive="dlls"))
+        return out
+
+    def _extract_dlls(self, zpath: Path, dest: Path) -> None:
+        """A wheel is a zip: keep only its DLLs, all in one folder (ONNX Runtime loads them from there)."""
+        dest.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zpath) as z:
+            for info in z.infolist():
+                name = os.path.basename(info.filename)  # flatten, no path traversal
+                if info.is_dir() or not name.lower().endswith(".dll"):
+                    continue
+                tmp = dest / (name + ".part")
+                with z.open(info) as src, open(tmp, "wb") as out:
+                    shutil.copyfileobj(src, out, CHUNK)
+                os.replace(tmp, dest / name)
 
     def _extract_zip(self, zpath: Path, dest: Path) -> None:
         dest.mkdir(parents=True, exist_ok=True)

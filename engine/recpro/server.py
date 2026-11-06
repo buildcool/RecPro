@@ -33,7 +33,10 @@ def _watch_parent(stdin_watch: bool) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    from . import __version__
+
     ap = argparse.ArgumentParser(prog="recpro-engine")
+    ap.add_argument("--version", action="version", version=f"recpro-engine {__version__}")
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--port", type=int, default=0)
     ap.add_argument("--origin", action="append", default=[], help="extra allowed CORS origin")

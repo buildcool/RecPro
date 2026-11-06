@@ -14,7 +14,7 @@ dependencies = [
   "watchdog>=4.0",
   "send2trash>=1.8",
   "scipy>=1.13",
-  "onnxruntime-gpu[cuda,cudnn]>=1.31.1",
+  "onnxruntime-gpu>=1.31.1",
   "opencv-python-headless>=5.0.0.93",
   "scikit-learn>=1.9.1",
   "tokenizers>=0.23.3",
@@ -29,6 +29,17 @@ dev = [
     "httpx>=0.27",
     "scikit-image>=0.26.0",
 ]
+# NVIDIA CUDA 13 + cuDNN 9 for development (1.7 GB). The installed app doesn't carry them: it
+# downloads the same wheels once as its "GPU acceleration" pack (ml/models.py, GPU_WHEELS).
+cuda = [
+    "onnxruntime-gpu[cuda,cudnn]>=1.31.1",
+]
+build = [
+    "pyinstaller>=6.10",
+]
+
+[tool.uv]
+default-groups = ["dev", "cuda"]
 
 [build-system]
 requires = ["hatchling"]

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ..context import Context
-from ..ml.models import MODELS
+from ..ml.models import applicable
 from .deps import ctx
 
 router = APIRouter()
@@ -36,7 +36,7 @@ def download(body: DownloadRequest, c: Context = Depends(ctx)) -> dict[str, Any]
     ids = body.ids
     if not ids:
         profile = body.profile or c.settings.get("models.profile") or "best"
-        ids = [m.id for m in MODELS if profile in m.profiles]
+        ids = [m.id for m in applicable() if profile in m.profiles]
         if body.profile:
             c.settings.update({"models.profile": profile})
     try:

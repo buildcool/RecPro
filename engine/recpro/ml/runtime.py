@@ -1,42 +1,104 @@
-"""ONNX Runtime sessions on the GPU (CUDA) with CPU fallback."""
+"""ONNX Runtime sessions on the GPU (CUDA) with CPU fallback.
+
+In development the CUDA and cuDNN libraries come from the NVIDIA packages in the virtual
+environment. The installed app doesn't carry them (1.7 GB): it downloads the same files once as
+the "GPU acceleration" pack, one folder of DLLs that is loaded from here.
+"""
 from __future__ import annotations
 
 import logging
 import os
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Any
 
 log = logging.getLogger("recpro.ml")
 
+FROZEN = bool(getattr(sys, "frozen", False))  # running as the installed app (PyInstaller)
+PACK_MARKERS = ("cudart64_13.dll", "cublas64_13.dll", "cublasLt64_13.dll", "cudnn64_9.dll")
+
 _lock = threading.Lock()
 _preloaded = False
+_cuda_loaded = False
 _gpu_name: str | None | bool = False  # False = not probed yet
+_gpu_pack: Path | None = None
+_dll_dirs: list[Any] = []  # handles from os.add_dll_directory must stay alive
+
+
+def nvidia_driver() -> bool:
+    """An NVIDIA display driver is installed (it provides nvcuda.dll)."""
+    if os.name != "nt":
+        return False
+    return (Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "nvcuda.dll").exists()
+
+
+def set_gpu_pack(folder: Path | str | None) -> None:
+    """Where the installed app keeps the downloaded CUDA and cuDNN DLLs."""
+    global _gpu_pack
+    _gpu_pack = Path(folder) if folder else None
+
+
+def gpu_pack_ready() -> bool:
+    return _gpu_pack is not None and all((_gpu_pack / f).exists() for f in PACK_MARKERS)
+
+
+def reload_gpu() -> None:
+    """After the GPU pack is installed: load it, so sessions created from now on use the GPU."""
+    global _preloaded
+    with _lock:
+        _preloaded = False
+    _preload()
+
+
+_ort_module: Any = None
+_import_lock = threading.Lock()
 
 
 def _ort():
-    import onnxruntime as ort
+    """onnxruntime, imported once: the first import must not race between threads."""
+    global _ort_module
+    if _ort_module is None:
+        with _import_lock:
+            if _ort_module is None:
+                import onnxruntime as ort
 
-    return ort
+                _ort_module = ort
+    return _ort_module
 
 
 def _preload() -> None:
-    global _preloaded
+    global _preloaded, _cuda_loaded
     if _preloaded:
         return
     with _lock:
         if _preloaded:
             return
         try:
-            _ort().preload_dlls(cuda=True, cudnn=True, msvc=True)
+            if FROZEN:
+                if gpu_pack_ready():
+                    d = str(_gpu_pack)
+                    # cuDNN opens its sub-libraries by name, so the folder must be on the search path too
+                    _dll_dirs.append(os.add_dll_directory(d))
+                    os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+                    _ort().preload_dlls(cuda=True, cudnn=True, msvc=True, directory=d)
+                    _cuda_loaded = True
+                else:
+                    _cuda_loaded = False  # no GPU pack yet: the processor does the work
+            else:
+                _ort().preload_dlls(cuda=True, cudnn=True, msvc=True)
+                _cuda_loaded = True
         except Exception as e:  # CPU-only machines end up here
             log.info("CUDA libraries not preloaded: %s", e)
+            _cuda_loaded = False
         _preloaded = True
 
 
 def cuda_available() -> bool:
     _preload()
+    if FROZEN and not _cuda_loaded:
+        return False
     try:
         return "CUDAExecutionProvider" in _ort().get_available_providers()
     except Exception:
@@ -96,4 +158,7 @@ def gpu_name() -> str | None:
 
 def device_info(use_gpu: bool) -> dict[str, Any]:
     cuda = use_gpu and cuda_available()
-    return {"provider": "CUDA" if cuda else "CPU", "name": gpu_name() if cuda else "Processor (CPU)"}
+    out: dict[str, Any] = {"provider": "CUDA" if cuda else "CPU", "name": gpu_name() if cuda else "Processor (CPU)"}
+    if FROZEN and not gpu_pack_ready() and nvidia_driver():
+        out["gpuPackNeeded"] = True  # an NVIDIA card is there: Settings offers the GPU pack
+    return out
