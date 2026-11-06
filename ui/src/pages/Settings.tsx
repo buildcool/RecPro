@@ -1,10 +1,10 @@
-import { Cpu, FolderCog, Info, Lock, Palette, ScanText, ShieldCheck, SlidersHorizontal, Copy } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { Cpu, FolderCog, Info, Lock, Palette, RefreshCw, ScanText, ShieldCheck, SlidersHorizontal, Copy } from 'lucide-react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Button, Card, PageHeader, Segmented, Switch } from '../components/ui';
 import { usePrivateUi, usePrivateState } from '../features/private/PrivateLock';
 import { ModelsList } from '../features/models/ModelSetup';
-import { bridge } from '../lib/bridge';
+import { bridge, type UpdateMode, type UpdateState } from '../lib/bridge';
 import { useHealth, useSettings, useUpdateSettings } from '../lib/queries';
 import { setTheme, type ThemePref } from '../lib/theme';
 
@@ -131,7 +131,16 @@ export function SettingsPage() {
         </Section>
 
         <Section icon={<Cpu className="size-4" />} title="Performance">
-          <Row label="Use the graphics card" hint={health?.gpu ? `${health.gpu.name ?? health.gpu.provider}` : 'Detected when recognition is set up'}>
+          <Row
+            label="Use the graphics card"
+            hint={
+              health?.gpu?.gpuPackNeeded
+                ? 'Your NVIDIA card needs the GPU pack: download it under AI models below'
+                : health?.gpu
+                  ? `${health.gpu.name ?? health.gpu.provider}`
+                  : 'Detected when recognition is set up'
+            }
+          >
             <Switch checked={!!s['performance.use_gpu']} onChange={(v) => set('performance.use_gpu', v)} label="Use the graphics card" />
           </Row>
           <Row label="Go easy on battery" hint="Slows analysis while the laptop is unplugged">
@@ -171,6 +180,8 @@ export function SettingsPage() {
           </Row>
         </Section>
 
+        <UpdatesSection />
+
         <Section icon={<Info className="size-4" />} title="About">
           <Row label="RecPro" hint="Private, offline photo and video organizer">
             <span className="text-[13px] text-fg-2">Engine {health?.version}</span>
@@ -178,6 +189,91 @@ export function SettingsPage() {
         </Section>
       </div>
     </div>
+  );
+}
+
+const UPDATE_MODES: { value: UpdateMode; label: string; hint: string }[] = [
+  { value: 'auto', label: 'Download for me', hint: 'Downloads in the background, then asks you to restart' },
+  { value: 'notify', label: 'Ask me first', hint: 'Tells you what is new; you choose when to download' },
+  { value: 'off', label: 'Off', hint: 'Never checks by itself' },
+];
+
+function updateStatus(u: UpdateState): string {
+  switch (u.status) {
+    case 'checking':
+      return 'Checking…';
+    case 'latest':
+      return 'You have the latest version.';
+    case 'available':
+      return `Version ${u.latest} is available.`;
+    case 'downloading':
+      return `Downloading version ${u.latest}… ${u.progress}%`;
+    case 'ready':
+      return `Version ${u.latest} is downloaded. Restart RecPro to finish; it also installs the next time you close it.`;
+    case 'error':
+      return u.error ?? 'The check didn’t work.';
+    default:
+      return u.checkedAt ? `Last checked ${new Date(u.checkedAt).toLocaleString()}.` : 'Not checked yet.';
+  }
+}
+
+function UpdatesSection() {
+  const u = bridge?.updates;
+  const [st, setSt] = useState<UpdateState | null>(null);
+  useEffect(() => {
+    if (!u) return;
+    let alive = true;
+    void u.get().then((s) => alive && s && setSt(s));
+    const off = u.onState((s) => setSt(s));
+    return () => {
+      alive = false;
+      off();
+    };
+  }, [u]);
+  return (
+    <Section
+      icon={<RefreshCw className="size-4" />}
+      title="Updates"
+      description="New versions come from RecPro’s releases on GitHub. A check only asks GitHub for the latest version number: never your photos, names or text. Strict offline stops checks too."
+    >
+      {!u || !st ? (
+        <Row label="Updates" hint="The desktop app checks for updates.">
+          <span className="text-[13px] text-fg-3">Not in this window</span>
+        </Row>
+      ) : (
+        <>
+          <Row label="When a new version is out" hint={UPDATE_MODES.find((m) => m.value === st.mode)?.hint}>
+            <Segmented value={st.mode} onChange={(v) => void u.setMode(v as UpdateMode).then(setSt)} options={UPDATE_MODES} />
+          </Row>
+          <Row label={`RecPro ${st.current}`} hint={updateStatus(st)}>
+            <div className="flex gap-2">
+              {st.status === 'available' && (
+                <Button size="sm" variant="primary" onClick={() => void u.download().then(setSt)}>
+                  {st.canInstall ? `Download ${st.latest}` : 'Open the download page'}
+                </Button>
+              )}
+              {st.status === 'ready' && (
+                <Button size="sm" variant="primary" onClick={() => void u.install()}>
+                  Restart to update
+                </Button>
+              )}
+              <Button size="sm" loading={st.status === 'checking'} disabled={st.busy || st.status === 'downloading'} onClick={() => void u.check().then(setSt)}>
+                Check now
+              </Button>
+            </div>
+          </Row>
+          {st.notes && (st.status === 'available' || st.status === 'downloading' || st.status === 'ready') && (
+            <div className="px-4 pb-4">
+              <div className="text-[13px] font-medium">What’s new in {st.latest}</div>
+              <p className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap text-[13px] text-fg-2">{st.notes}</p>
+              <button type="button" className="mt-2 text-xs text-accent hover:underline" onClick={() => void u.openPage()}>
+                Open the release page
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </Section>
   );
 }
 

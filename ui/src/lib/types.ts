@@ -9,7 +9,8 @@ export type Health = {
   dataDir: string;
   localOnly: boolean;
   strictOffline: boolean;
-  gpu: { provider: string; name?: string; vramMb?: number } | null;
+  gpu: { provider: string; name?: string; vramMb?: number; gpuPackNeeded?: boolean } | null;
+  tools?: { ffmpeg: string | null; ffprobe: string | null };
 };
 
 export type Folder = {
