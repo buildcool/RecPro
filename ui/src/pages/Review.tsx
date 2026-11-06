@@ -14,6 +14,7 @@ import { SensitiveReview } from '../features/private/SensitiveReview';
 import { get, mediaUrl, post } from '../lib/api';
 import { num } from '../lib/format';
 import { type Brief, type ReviewFaces, useReviewCounts } from '../lib/people';
+import type { MediaItem } from '../lib/types';
 
 export function ReviewPage() {
   const { data: counts } = useReviewCounts();
@@ -23,6 +24,7 @@ export function ReviewPage() {
     ['faces', 'Is this…?', counts?.faces],
     ['merge', 'Same person?', counts?.merge],
     ['name', 'Who is this?', counts?.name],
+    ['hidden', 'Face hidden?', undefined],
     ['private', 'Private', counts?.sensitive],
   ];
   return (
@@ -52,6 +54,9 @@ export function ReviewPage() {
         </Tabs.Content>
         <Tabs.Content value="name">
           <NameQuestions />
+        </Tabs.Content>
+        <Tabs.Content value="hidden">
+          <HiddenQuestions initialPerson={sp.get('person') ? Number(sp.get('person')) : undefined} />
         </Tabs.Content>
         <Tabs.Content value="private">
           <SensitiveReview />
@@ -305,6 +310,117 @@ function NameQuestions() {
           />
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------- Face hidden?
+type HiddenPerson = { id: number; name: string; cover_face_id: number | null; count: number };
+type HiddenItem = MediaItem & { minutes: number; presence: number };
+
+function HiddenQuestions({ initialPerson }: { initialPerson?: number }) {
+  const qc = useQueryClient();
+  const people = useQuery({ queryKey: ['review', 'hidden'], queryFn: () => get<HiddenPerson[]>('/api/review/hidden') });
+  const [picked, setPicked] = useState<number | undefined>(initialPerson);
+  const active = picked ?? people.data?.[0]?.id;
+  const data = useQuery({
+    queryKey: ['review', 'hidden', active],
+    queryFn: () => get<{ person: { id: number; name: string }; items: HiddenItem[] }>(`/api/review/hidden/${active}?limit=48`),
+    enabled: active != null,
+  });
+  const [ticked, setTicked] = useState<Set<number>>(new Set());
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setTicked(new Set()), [active, data.data]);
+
+  if (people.isLoading) return null;
+  if (!people.data?.length && !initialPerson)
+    return <EmptyState icon={<CheckCircle2 className="size-6" />} title="Nothing to check" body="When someone may be in a photo with their face turned away, RecPro asks here." />;
+  const items = data.data?.items ?? [];
+  const name = data.data?.person.name ?? people.data?.find((p) => p.id === active)?.name ?? '';
+
+  const save = async (all: 'ticked' | 'none') => {
+    if (active == null || !items.length) return;
+    setSaving(true);
+    try {
+      const yes = all === 'none' ? [] : items.filter((i) => ticked.has(i.id)).map((i) => i.id);
+      const no = items.filter((i) => !yes.includes(i.id)).map((i) => i.id);
+      await post(`/api/review/hidden/${active}/answer`, { yes, no });
+      toast(yes.length ? `${name} is in ${num(yes.length)} more ${yes.length === 1 ? 'photo' : 'photos'}` : `Noted: ${name} isn't in these`);
+      qc.invalidateQueries({ queryKey: ['review', 'hidden'] });
+      qc.invalidateQueries({ queryKey: ['search'] });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(people.data ?? []).map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => setPicked(p.id)}
+            className={clsx('flex items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-[13px]', p.id === active ? 'border-accent bg-accent/10 text-fg' : 'border-line text-fg-2 hover:bg-surface-2')}
+          >
+            <FaceAvatar faceId={p.cover_face_id} size={24} />
+            {p.name}
+            <span className="text-xs text-fg-3">{num(p.count)}</span>
+          </button>
+        ))}
+      </div>
+      {active != null && (
+        <>
+          <p className="mb-4 max-w-2xl text-sm text-fg-2">
+            These are from the same outings as photos of <span className="font-medium text-fg">{name}</span>, and someone is in them, but no face in them is {name}'s. Tick
+            the ones {name} is in; the rest count as "not in it".
+          </p>
+          {items.length === 0 && !data.isLoading ? (
+            <EmptyState icon={<CheckCircle2 className="size-6" />} title="All checked" body={`Nothing left to check for ${name}.`} />
+          ) : (
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
+              {items.map((it) => {
+                const on = ticked.has(it.id);
+                return (
+                  <div key={it.id} className="group relative overflow-hidden rounded-lg bg-thumb">
+                    <button
+                      type="button"
+                      className="block aspect-square w-full"
+                      aria-label={on ? `${name} is in this photo` : 'Tick if they are in this photo'}
+                      onClick={() => setTicked((s) => {
+                        const n = new Set(s);
+                        if (n.has(it.id)) n.delete(it.id);
+                        else n.add(it.id);
+                        return n;
+                      })}
+                      onDoubleClick={() => useViewer.getState().show(items.map((x) => x.id), items.indexOf(it))}
+                    >
+                      <img src={mediaUrl(`media/thumb/${it.id}?v=${it.v}`)} alt="" loading="lazy" className={clsx('size-full object-cover', it.priv && 'blur-private')} />
+                    </button>
+                    <span className={clsx('pointer-events-none absolute left-1.5 top-1.5 flex size-6 items-center justify-center rounded-full border-2', on ? 'border-accent bg-accent text-white' : 'border-white bg-black/30 text-transparent')}>
+                      <Check className="size-3.5" strokeWidth={3} />
+                    </span>
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 pb-1.5 pt-4 text-[11px] text-white">
+                      {it.minutes < 1 ? 'Same moment' : `${num(it.minutes)} min from a photo of ${name}`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {items.length > 0 && (
+            <div className="sticky bottom-0 mt-4 flex flex-wrap items-center gap-2 border-t border-line bg-bg py-3">
+              <Button variant="primary" loading={saving} disabled={!ticked.size} onClick={() => void save('ticked')} icon={<Check className="size-4" />}>
+                {name} is in the {num(ticked.size)} ticked
+              </Button>
+              <Button loading={saving} onClick={() => void save('none')} icon={<X className="size-4" />}>
+                Not in any of these
+              </Button>
+              <span className="text-xs text-fg-3">Double-click a photo to see it larger.</span>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

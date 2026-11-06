@@ -24,6 +24,7 @@ type Result = {
   check: Hit[];
   groups: { folder: string; sure: number; check: number }[];
   hidden_private: number;
+  hidden_more?: number; // photos from the same outings where the person's face may be hidden
   scanned: number;
   pending: number;
 };
@@ -341,6 +342,7 @@ function WhereStep({
 
 // ---------------------------------------------------------------------------- step 3
 function CheckStep({ people, refs, mode, folderIds, kinds }: { people: number[]; refs: RefFace[]; mode: string; folderIds: number[]; kinds?: string[] }) {
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const body = useMemo(() => ({ people, ref_tokens: refs.map((r) => r.token), mode, folder_ids: folderIds, kinds }), [people, refs, mode, folderIds, kinds]);
   const { data: res, isLoading } = useQuery({
@@ -413,6 +415,11 @@ function CheckStep({ people, refs, mode, folderIds, kinds }: { people: number[];
               <Badge tone="private">
                 <Lock className="size-3" /> Private · {num(res.hidden_private)} hidden · Unlock to include
               </Badge>
+            </button>
+          )}
+          {!!res.hidden_more && people.length === 1 && (
+            <button type="button" onClick={() => navigate(`/review?tab=hidden&person=${people[0]}`)} title="Photos from the same outings where someone is there but their face isn't visible">
+              <Badge tone="neutral">Face not visible · {num(res.hidden_more)} maybe · Check</Badge>
             </button>
           )}
           <span className="ml-auto text-[13px] text-fg-2">
