@@ -8,6 +8,9 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageOps
+# imported here, not in phash: SciPy's lazy first import deadlocks when the quick pass's threads
+# all reach it at once (seen in the frozen engine and a clean install)
+from scipy.fft import dct
 
 try:
     import pillow_heif
@@ -80,8 +83,6 @@ def webp_bytes(img: Image.Image, max_side: int, quality: int = 80) -> bytes:
 
 def phash(img: Image.Image) -> int:
     """64-bit DCT perceptual hash (signed, to fit SQLite INTEGER)."""
-    from scipy.fft import dct
-
     g = np.asarray(img.convert("L").resize((32, 32), Image.Resampling.LANCZOS), dtype=np.float32)
     d = dct(dct(g, axis=0, norm="ortho"), axis=1, norm="ortho")[:8, :8]
     med = np.median(d.flatten()[1:])
