@@ -20,7 +20,7 @@ from typing import Any
 from blake3 import blake3
 
 from ..context import Context
-from .fsutil import BIN_DIR, ensure_bin, is_inside, lp, path_under_volume, safe_name, unique_path, unlp, volume_root
+from .fsutil import BIN_DIR, ensure_bin, is_inside, lp, path_under_volume, safe_name, same_volume, unique_path, unlp, volume_root
 
 log = logging.getLogger("recpro.ops")
 CHUNK = 4 * 1024 * 1024
@@ -42,6 +42,8 @@ class Ops:
         self._cancel: dict[int, threading.Event] = {}
         self._rate: dict[int, tuple[float, int]] = {}
         self._lock = threading.Lock()
+        # Tests and development keep the bin out of drive roots (must be on the same drive).
+        self.bin_root_override: str | None = os.environ.get("RECPRO_BIN_ROOT") or None
 
     def start(self) -> None:
         # Operations interrupted by a crash or shutdown resume as paused, waiting for the user.
@@ -186,6 +188,17 @@ class Ops:
         else:
             self._spawn(op_id)
         self._emit(op_id)
+
+    def retry_failed(self, op_id: int) -> None:
+        """Puts failed files back in the queue and resumes the operation."""
+        op = self._op(op_id)
+        if op["status"] in ("running",):
+            raise ValueError("This operation is still running.")
+        n = self.db.x("UPDATE op_items SET state='pending', error=NULL WHERE op_id=? AND state='failed'", (op_id,)).rowcount
+        if n == 0:
+            raise ValueError("Nothing failed in this operation.")
+        self.db.x("UPDATE operations SET status='paused', failed=0, finished_at=NULL WHERE id=?", (op_id,))
+        self.resume(op_id)
 
     def pause(self, op_id: int) -> None:
         ev = self._pause.get(op_id)
@@ -375,6 +388,9 @@ class Ops:
 
     def _move_to_bin(self, path: str, op_id: int) -> str:
         roots = [volume_root(path)]
+        override = self.bin_root_override
+        if override and same_volume(override, path):
+            roots = [override]
         libs = sorted((r["path"] for r in self.db.q("SELECT path FROM folders")), key=len, reverse=True)
         lib_root = next((p for p in libs if is_inside(path, p)), None)
         if lib_root:
@@ -383,7 +399,7 @@ class Ops:
         for root in roots:
             try:
                 bin_dir = ensure_bin(root, op_id)
-                rel = path_under_volume(path) if root == volume_root(path) else os.path.relpath(path, root)
+                rel = path_under_volume(path) if root in (volume_root(path), override) else os.path.relpath(path, root)
                 target = os.path.join(str(bin_dir), rel)
                 os.makedirs(lp(os.path.dirname(target)), exist_ok=True)
                 target = unique_path(target)

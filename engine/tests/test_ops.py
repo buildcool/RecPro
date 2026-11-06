@@ -44,9 +44,10 @@ def test_remove_to_bin_then_undo_restores_exactly(ctx, library_dir, tmp_path):
     assert not any(p.exists() for p in before)
     states = {row["state"] for row in ctx.db.q("SELECT state FROM media")}
     assert states == {"binned"}
-    # The bin lives on the same drive, hidden from scans
-    bins = [p for p in Path(os.path.splitdrive(str(library_dir))[0] + os.sep).glob(BIN_DIR)] or list(library_dir.glob(BIN_DIR))
-    assert bins
+    # The bin lives on the same drive (here: the test's bin root), with a README
+    bin_dir = tmp_path / "binroot" / BIN_DIR
+    assert (bin_dir / "README.txt").exists()
+    assert list((bin_dir / f"op-{op}").rglob("top.png"))
     u = _ops(ctx).undo(op)
     assert u["restored"] == len(ids)
     for p, data in before.items():

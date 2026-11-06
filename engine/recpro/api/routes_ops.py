@@ -94,6 +94,15 @@ def resume(op_id: int, c: Context = Depends(ctx)) -> dict[str, Any]:
     return _ops(c).op_dict(op_id)
 
 
+@router.post("/api/ops/{op_id}/retry")
+def retry(op_id: int, c: Context = Depends(ctx)) -> dict[str, Any]:
+    try:
+        _ops(c).retry_failed(op_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return _ops(c).op_dict(op_id)
+
+
 @router.post("/api/ops/{op_id}/cancel")
 def cancel(op_id: int, c: Context = Depends(ctx)) -> dict[str, Any]:
     _ops(c).cancel(op_id)

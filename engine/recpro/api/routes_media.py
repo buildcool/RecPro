@@ -116,6 +116,25 @@ def media_month(
     return [item_dict(r, chk, blur) for r in rows]
 
 
+@router.get("/api/media/ids")
+def media_ids(
+    folder_id: int | None = None,
+    rel_dir: str | None = None,
+    kind: str | None = None,
+    person_id: int | None = None,
+    label_id: int | None = None,
+    private_only: bool = False,
+    c: Context = Depends(ctx),
+) -> list[int]:
+    """All ids of a view in timeline order (for the viewer and range selection)."""
+    where, params = _filters(c, folder_id, rel_dir, kind, person_id, label_id, private_only)
+    rows = c.db.q(
+        f"SELECT m.id FROM media m WHERE {where} ORDER BY {MONTH_SQL} DESC, m.taken_at DESC, m.id DESC",
+        params,
+    )
+    return [r[0] for r in rows]
+
+
 @router.post("/api/media/items")
 def media_items(body: dict[str, Any], c: Context = Depends(ctx)) -> list[dict[str, Any]]:
     """Fetch grid items for an explicit list of ids (search results, selections)."""
@@ -130,6 +149,23 @@ def media_items(body: dict[str, Any], c: Context = Depends(ctx)) -> list[dict[st
         for r in c.db.q(f"SELECT * FROM media m WHERE id IN ({','.join('?' * len(chunk))})", chunk):
             out[r["id"]] = item_dict(r, chk, blur)
     return [out[i] for i in ids if i in out]
+
+
+@router.post("/api/media/paths")
+def media_paths(body: dict[str, Any], c: Context = Depends(ctx)) -> dict[str, str]:
+    """File paths for dragging files out of the app (private items only when unlocked)."""
+    ids = [int(i) for i in body.get("ids", [])][:5000]
+    out: dict[str, str] = {}
+    hide = private_hidden(c)
+    priv = c.services.get("private")
+    unlocked = bool(priv and priv.is_unlocked())  # type: ignore[attr-defined]
+    for i in range(0, len(ids), 900):
+        chunk = ids[i : i + 900]
+        for r in c.db.q(f"SELECT id, path, sens_state FROM media WHERE state='active' AND id IN ({','.join('?' * len(chunk))})", chunk):
+            if r["sens_state"] == "private" and hide and not unlocked:
+                continue
+            out[str(r["id"])] = r["path"]
+    return out
 
 
 @router.get("/api/media/{media_id}")

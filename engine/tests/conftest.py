@@ -14,6 +14,8 @@ from recpro.config import Paths
 @pytest.fixture()
 def ctx(tmp_path: Path):
     c = build_context(Paths(tmp_path / "data"), "test-token")
+    # Never create a bin at a real drive root during tests.
+    c.services["ops"].bin_root_override = str(tmp_path / "binroot")
     yield c
     c.stop()
 
