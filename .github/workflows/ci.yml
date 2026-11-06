@@ -10,6 +10,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      - name: ffmpeg (the video tests make and read real videos)
+        run: choco install ffmpeg -y --no-progress
       - name: Install (without the 1.7 GB of CUDA libraries; the tests don't need a GPU)
         working-directory: engine
         run: uv sync --frozen --no-default-groups --group dev

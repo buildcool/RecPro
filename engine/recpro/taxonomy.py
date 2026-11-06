@@ -279,20 +279,18 @@ class Taxonomy:
 
     # ---- scoring -------------------------------------------------------------------
     def rescore(self, defs: list[LabelDef]) -> int:
-        """Score categories for every photo that already has an embedding."""
+        """Score categories for every photo and video that already has embeddings."""
         ml = self.ctx.services["ml"]
         model = ml.siglip()  # type: ignore[attr-defined]
         index = self.ctx.services.get("semantic_index")
         if model is None or index is None:
             return 0
         ids, E = index.matrix()  # type: ignore[attr-defined]
-        if len(ids) == 0:
-            return 0
         labels = self.ctx.services["labels"]
         # relative scores need the whole group, so score the groups these labels belong to
         grps = {d.grp for d in defs}
         full = [d for d in self.defs() if d.grp in grps and (d.grp != "custom" or d.key in {x.key for x in defs})]
-        scores = score_labels(model, E, full)
+        scores = score_labels(model, E, full) if len(ids) else {}
         mids = ids.tolist()
         for d in full:
             sc = scores.get(d.key)
@@ -307,8 +305,30 @@ class Taxonomy:
                 items.append((mid, d.key, vals, d.grp))
             for s in range(0, len(items), 5000):
                 labels.record_many(items[s : s + 5000])  # type: ignore[attr-defined]
+        self._rescore_videos(full, model, index)
         self.ctx.events.publish("labels.changed", {})
         return len(ids)
+
+    def _rescore_videos(self, defs: list[LabelDef], model, index) -> None:
+        """Videos: the same categories over their scene frames (best score in the video, and spans)."""
+        from .framelabels import store_spans, video_labels
+
+        owners, times, E = index.frame_matrix()  # type: ignore[attr-defined]
+        if len(owners) == 0:
+            return
+        labels = self.ctx.services["labels"]
+        scores = score_labels(model, E, defs)
+        for d in defs:
+            personal = self._personal_scores(d.key, E) if d.key in scores else None
+            if personal is not None:
+                scores[d.key]["personal"] = personal
+        vids = sorted({int(m) for m in owners})
+        ends = {int(r["id"]): int(round((r["duration"] or 0) * 1000)) for r in self.db.q(
+            f"SELECT id, duration FROM media WHERE id IN ({','.join('?' * len(vids))})", vids)}
+        records, spans = video_labels(labels, defs, scores, owners, times, ends)
+        for s in range(0, len(records), 5000):
+            labels.record_many(records[s : s + 5000])  # type: ignore[attr-defined]
+        store_spans(self.db, labels, spans, [(m, d.key) for m in vids for d in defs if d.key in scores])
 
     # ---- custom categories ---------------------------------------------------------------
     def create(self, name: str, prompts: list[str]) -> int:
@@ -349,7 +369,7 @@ class Taxonomy:
         if ix is None:
             return
         for st in ix.stages:  # type: ignore[attr-defined]
-            if st.name == "semantic":
+            if st.name in ("semantic", "video"):
                 st.invalidate_prompts()
 
     # ---- answers and the personal classifier ------------------------------------------------

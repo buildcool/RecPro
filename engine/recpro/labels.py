@@ -173,6 +173,13 @@ class Labels:
         k = "sensitivity.sensitive" if grp == "sensitive" else "sensitivity.categories"
         return str(self.ctx.settings.get(k, "never_miss"))
 
+    def check_threshold(self, src: str, grp: str) -> float | None:
+        """The "please check" threshold of a source for a group (None: the source doesn't count)."""
+        source = source_key(src, grp)
+        if source not in THRESHOLDS:
+            return None
+        return THRESHOLDS[source].get(self.mode(grp), THRESHOLDS[source]["never_miss"])[0]
+
     @staticmethod
     def tier_of(source: str, value: float, mode: str) -> str:
         chk, sure = THRESHOLDS[source].get(mode, THRESHOLDS[source]["never_miss"])

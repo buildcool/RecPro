@@ -53,10 +53,11 @@ class Indexer:
         from .semantic import SemanticStage
         from .sens import SensStage
         from .text import TextStage
+        from .video import VideoStage
 
         # Order = priority: thumbnails first so the gallery fills fast, the private check before
-        # anything is shown unblurred, then faces, understanding, and reading text.
-        defaults = [QuickStage(self.ctx), SensStage(self.ctx), DeepStage(self.ctx), SemanticStage(self.ctx), TextStage(self.ctx)]
+        # anything is shown unblurred, then faces, understanding, reading text, and whole videos.
+        defaults = [QuickStage(self.ctx), SensStage(self.ctx), DeepStage(self.ctx), SemanticStage(self.ctx), TextStage(self.ctx), VideoStage(self.ctx)]
         names = {s.name for s in self.stages}
         for st in reversed(defaults):
             if st.name not in names:

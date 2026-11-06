@@ -123,6 +123,9 @@ class ML:
                 self._engines.clear()
         if model_id == "gpu":
             runtime.reload_gpu()
+        if model_id in ("faces", "nudenet", "siglip2", "siglip2-fast"):
+            # videos watched without this model are watched again with it
+            self.ctx.db.x("UPDATE media SET video_v=0 WHERE kind='video'")
         if model_id == "emotion":
             # photos analyzed before the expression model arrived get their faces' expressions now
             self.ctx.db.x(

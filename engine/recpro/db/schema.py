@@ -200,4 +200,22 @@ MIGRATIONS: list[str] = [
     ALTER TABLE media ADD COLUMN sem_v INTEGER NOT NULL DEFAULT 0;
     CREATE INDEX media_sens ON media(sens_state);
     """,
+    # v4 — videos: when each face (one per person per video) is on screen, and when a category or
+    # private content is
+    """
+    CREATE TABLE face_spans(
+      face_id INTEGER NOT NULL REFERENCES faces(id) ON DELETE CASCADE,
+      start_ms INTEGER NOT NULL,
+      end_ms INTEGER NOT NULL
+    );
+    CREATE INDEX face_spans_face ON face_spans(face_id);
+    CREATE TABLE label_spans(
+      media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+      label_id INTEGER NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
+      start_ms INTEGER NOT NULL,
+      end_ms INTEGER NOT NULL,
+      score REAL NOT NULL
+    );
+    CREATE INDEX label_spans_media ON label_spans(media_id, label_id);
+    """,
 ]
