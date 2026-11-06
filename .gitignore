@@ -4,6 +4,8 @@ out/
 release/
 .devdata/
 .testdata/
+.cache/
+.claude/
 engine/.venv/
 engine/build/
 engine/*.spec
