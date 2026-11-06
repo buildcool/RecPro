@@ -186,6 +186,25 @@ export function Viewer() {
               <p className="whitespace-pre-wrap text-xs text-white/70">{d.text.slice(0, 600)}</p>
             </div>
           )}
+          {d.speech && d.speech.length > 0 && (
+            <div className="mt-5">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-white/50">Said in this video</div>
+              <ol className="space-y-1.5">
+                {d.speech.slice(0, 300).map((sp) => (
+                  <li key={sp.start_ms}>
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent('recpro:seek', { detail: sp.start_ms }))}
+                      className="flex w-full gap-2 rounded-md px-1.5 py-1 text-left text-xs text-white/75 hover:bg-white/10"
+                    >
+                      <span className="shrink-0 tabular-nums text-[#8fb1fb]">{clock(sp.start_ms)}</span>
+                      <span>{sp.text}</span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
         </aside>
       )}
     </div>
@@ -256,6 +275,20 @@ function VideoView({ id, d, startMs }: { id: number; d: MediaDetail; startMs?: n
     v.currentTime = ms / 1000;
     void v.play().catch(() => {});
   };
+
+  // the details panel's transcript asks to jump to a moment
+  useEffect(() => {
+    const onSeek = (e: Event) => {
+      const v = ref.current;
+      const ms = (e as CustomEvent<number>).detail;
+      if (v && typeof ms === 'number') {
+        v.currentTime = ms / 1000;
+        void v.play().catch(() => {});
+      }
+    };
+    window.addEventListener('recpro:seek', onSeek);
+    return () => window.removeEventListener('recpro:seek', onSeek);
+  }, []);
 
   const lanes = useMemo(() => {
     const out: Lane[] = [];

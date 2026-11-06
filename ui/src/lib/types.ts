@@ -73,6 +73,7 @@ export type MediaDetail = {
   labels: MediaLabel[];
   text?: string | null;
   label_spans?: { label_id: number; name: string; start_ms: number; end_ms: number }[];
+  speech?: { start_ms: number; end_ms: number; text: string }[]; // videos: what is said, when
 };
 
 export type FaceBox = {
