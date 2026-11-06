@@ -61,6 +61,14 @@ Tests do the same automatically with a temporary folder.
 engine/.venv/Scripts/python scripts/make_samples.py .testdata/samples
 ```
 
+### Text samples
+
+`scripts/make_text_samples.py` draws synthetic images for the text pass: SPECIMEN Aadhaar- and PAN-style cards with random checksum-valid numbers, a WhatsApp-style chat, a UPI payment screen, an invoice and a Hindi line. `truth.txt` records the numbers it drew. Add the folder to the library to see ID documents, screenshot apps and text search.
+
+```bash
+engine/.venv/Scripts/python -I scripts/make_text_samples.py .testdata/text-samples
+```
+
 ### Keep downloads and caches on D:
 
 This project keeps every download off C:. Before installing Python packages, point uv's cache and temp folders into the repository (npm already uses `.cache/npm` through the project `.npmrc`):

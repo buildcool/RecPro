@@ -33,4 +33,13 @@ All notable changes to RecPro. Versions follow [Semantic Versioning](https://sem
 - Universal search: people names (together), years and months, photos/videos, girl/boy/woman/man/baby/kids/old, alone/couple/group, expressions on the right person's face ("Colin Powell smiling"), folder names, category names, and free text understood by SigLIP 2; results in Best matches and Maybe with removable "Understood as" chips. Private content can't be searched together with children.
 - Explore: category cards with covers and counts; category pages with the timeline and a "Maybe" strip.
 - Re-analysis keeps people: when faces are detected again, the face at the same spot inherits its person, state, votes and cover.
+- Text in photos: PaddleOCR PP-OCRv5 reads English, and Hindi/Marathi (Devanagari) on request, in documents, ID cards, screenshots and memes, on this PC. Only photos whose categories or file facts suggest text are read. Words inside photos are searchable in any script; ID numbers are stored with all but the last 4 characters hidden.
+- ID documents: Aadhaar (Verhoeff checksum), PAN (holder-type letter), passport (machine-readable zone check digits), driving licence and voter ID. Each is *Sure* when the number's structure and the card's own words agree and *Please check* when only one is there. They get their own Explore group, and *Treat ID documents as private* hides them in Private with an *ID documents* tab.
+- Screenshots: recognized from the file (named like one, or screen-sized without a camera) and sorted by app from the words on screen: WhatsApp, Instagram, Telegram, Facebook, YouTube, X, payments, shopping, email, bank messages and maps.
+- Settings → Text in photos: read Hindi and Marathi too (on by default).
 - Find and move: pick people (any of them, all together, or alone) or use a photo of someone, choose folders and photos/videos, see Sure matches grouped by folder and the doubtful ones to tick, how many private matches are hidden, then copy or move with the safe copy flow. Searching a folder that is still being analyzed processes it first and updates live.
+
+### Fixed
+- New photos no longer land in Private or *Please check* because of a relative score: private content uses SigLIP's absolute probability and NudeNet again (0 of 729 safe photos private, as validated), and stored relative scores are dropped once on upgrade.
+- Documents, chats and bills no longer fill photo categories (a chat about a party as *Party*, a white ID card as *Snow*, a laptop repair invoice as *Laptop*): categories have "it's text" alternatives now.
+- Search keeps Hindi, Marathi and other Indic words whole; their vowel signs used to split them.

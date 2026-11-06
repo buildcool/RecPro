@@ -1,8 +1,9 @@
 """Text reading with PaddleOCR PP-OCRv5 (ONNX): DB text detection + CTC line recognition.
 
-English (PP-OCRv5) reads every line; Devanagari (Hindi/Marathi, PP-OCRv3) is tried on lines the
-English model isn't sure about, and the more confident reading wins. PaddleOCR models were
-trained on BGR images, so images are converted before inference.
+English (PP-OCRv5) and, when enabled, Devanagari (Hindi/Marathi, PP-OCRv3) both read every line,
+and the more confident reading wins (English on near-ties: the English model reads Hindi as
+confident nonsense like "HH" otherwise, so neither can be skipped). PaddleOCR models were trained
+on BGR images, so images are converted before inference.
 """
 from __future__ import annotations
 

@@ -23,7 +23,7 @@ Everything RecPro creates is in its data folder, chosen during setup (for exampl
 
 | Path | Contents |
 |---|---|
-| `recpro.db` | Library index, faces, people, labels, your answers, settings, operation history |
+| `recpro.db` | Library index, faces, people, labels, text read from photos (ID numbers masked), your answers, settings, operation history |
 | `thumbs/`, `previews/`, `faces/` | Small images for the interface |
 | `private/` | Encrypted thumbnails and previews of private items |
 | `models/` | Downloaded AI models |
@@ -50,4 +50,8 @@ Romance, suggestive, nudity and sexual content is detected with the same care as
 
 ## ID documents
 
-Aadhaar, PAN, passport, driving licence and voter ID detection runs locally. Numbers are masked in the interface, and the setting *Treat ID documents as private* moves them into Private. Tests use synthetic numbers only.
+RecPro reads the words in documents, ID cards and screenshots on this PC (PaddleOCR) so you can search them and find ID documents: Aadhaar, PAN, passport, driving licence and voter ID.
+
+- **Numbers are masked before anything is stored.** RecPro's text index keeps only the last 4 characters of an ID number (`XXXX XXXX 1234`) and of a passport's machine-readable lines. Any 12-digit number printed in groups of four is masked, even if one digit was misread. Your photos themselves are not changed.
+- **Treat ID documents as private** (Settings → Private) moves photos RecPro is sure are ID documents, and ones you confirm, into Private, with their own *ID documents* tab. Ones it isn't sure about stay visible and wait in the ID category for you to check. Turning the setting off brings them back.
+- Tests use synthetic numbers only (random digits with a valid checksum, and the ICAO specimen passport).
