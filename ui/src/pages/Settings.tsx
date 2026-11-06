@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Button, Card, PageHeader, Segmented, Switch } from '../components/ui';
 import { usePrivateUi, usePrivateState } from '../features/private/PrivateLock';
+import { ModelsList } from '../features/models/ModelSetup';
 import { bridge } from '../lib/bridge';
 import { useHealth, useSettings, useUpdateSettings } from '../lib/queries';
 import { setTheme, type ThemePref } from '../lib/theme';
@@ -126,6 +127,10 @@ export function SettingsPage() {
           <Row label="Go easy on battery" hint="Slows analysis while the laptop is unplugged">
             <Switch checked={!!s['performance.quiet_on_battery']} onChange={(v) => set('performance.quiet_on_battery', v)} label="Go easy on battery" />
           </Row>
+        </Section>
+
+        <Section icon={<Cpu className="size-4" />} title="AI models" description="Downloaded once, then everything runs on this PC.">
+          <ModelsList />
         </Section>
 
         <Section icon={<ShieldCheck className="size-4" />} title="Network">

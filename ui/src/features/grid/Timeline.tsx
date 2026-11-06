@@ -82,9 +82,8 @@ export function Timeline({ filters, scope, header, empty }: { filters: TimelineF
     getItemKey: (i) => (hasHeader && i === 0 ? '__header' : `${key}:${months[i - (hasHeader ? 1 : 0)]?.ym}`),
   });
 
-  useEffect(() => {
-    virtualizer.measure();
-  }, [width, rowHeight, virtualizer]);
+  // Note: no virtualizer.measure() on resize: it would reset measured sizes to estimates.
+  // Each section is observed by measureElement and re-measures itself when its height changes.
 
   const years = useMemo(() => {
     const out: { year: string; index: number }[] = [];

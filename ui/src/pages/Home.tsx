@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { Badge, Button, Card, Progress, SectionTitle } from '../components/ui';
 import { addFoldersFlow } from '../features/library/addFolders';
+import { ModelSetupCard } from '../features/models/ModelSetup';
 import { get, mediaUrl, post } from '../lib/api';
 import { bytes, eta, num, timeAgo } from '../lib/format';
 import { useLive } from '../lib/live';
@@ -64,6 +65,8 @@ export function HomePage() {
             </div>
           </div>
         </Card>
+
+        <ModelSetupCard need="faces" />
 
         {/* Numbers */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Compass, Lock, MessageCircleQuestion, Users } from 'lucide-react';
+import { Compass, Lock } from 'lucide-react';
 import { lazy, Suspense, useEffect } from 'react';
 import { createHashRouter, Navigate, Outlet, RouterProvider, useLocation } from 'react-router';
 import { AppShell } from './app/AppShell';
@@ -16,6 +16,10 @@ const lazyPage = (name: string, loader: () => Promise<Record<string, React.Compo
 const Home = lazyPage('HomePage', () => import('./pages/Home'));
 const Photos = lazyPage('PhotosPage', () => import('./pages/Photos'));
 const HistoryPage = lazyPage('HistoryPage', () => import('./pages/History'));
+const PeoplePage = lazyPage('PeoplePage', () => import('./pages/People'));
+const PersonPage = lazyPage('PersonPage', () => import('./pages/Person'));
+const ReviewPage = lazyPage('ReviewPage', () => import('./pages/Review'));
+const FindPage = lazyPage('FindPage', () => import('./pages/Find'));
 const Folders = lazyPage('FoldersPage', () => import('./pages/Folders'));
 const Settings = lazyPage('SettingsPage', () => import('./pages/Settings'));
 const Onboarding = lazyPage('OnboardingPage', () => import('./pages/Onboarding'));
@@ -62,9 +66,11 @@ const router = createHashRouter([
         children: [
           { path: '/', element: <Page><Home /></Page> },
           { path: '/photos', element: <Page><Photos /></Page> },
-          { path: '/people', element: <Placeholder title="People" icon={<Users className="size-6" />} /> },
+          { path: '/people', element: <Page><PeoplePage /></Page> },
+          { path: '/people/:id', element: <Page><PersonPage /></Page> },
+          { path: '/find', element: <Page><FindPage /></Page> },
           { path: '/explore', element: <Placeholder title="Explore" icon={<Compass className="size-6" />} /> },
-          { path: '/review', element: <Placeholder title="Review" icon={<MessageCircleQuestion className="size-6" />} /> },
+          { path: '/review', element: <Page><ReviewPage /></Page> },
           { path: '/private', element: <Placeholder title="Private" icon={<Lock className="size-6" />} /> },
           { path: '/folders', element: <Page><Folders /></Page> },
           { path: '/history', element: <Page><HistoryPage /></Page> },

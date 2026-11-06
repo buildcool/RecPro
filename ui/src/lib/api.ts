@@ -54,6 +54,22 @@ export async function api<T>(path: string, opts: Opts = {}): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Multipart upload to the local engine (e.g. reference photos in browser mode). */
+export async function upload<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${base}${path}`, { method: 'POST', headers: { 'X-RecPro-Token': token }, body: form });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      const j = (await res.json()) as { detail?: string };
+      if (typeof j.detail === 'string') msg = j.detail;
+    } catch {
+      /* not json */
+    }
+    throw new ApiError(res.status, msg);
+  }
+  return (await res.json()) as T;
+}
+
 export const get = <T>(path: string, signal?: AbortSignal) => api<T>(path, { signal });
 export const post = <T>(path: string, body?: unknown) => api<T>(path, { method: 'POST', body: body ?? {} });
 export const patch = <T>(path: string, body: unknown) => api<T>(path, { method: 'PATCH', body });
