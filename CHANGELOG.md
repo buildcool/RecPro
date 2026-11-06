@@ -42,9 +42,16 @@ All notable changes to RecPro. Versions follow [Semantic Versioning](https://sem
 - Windows installer and releases: the engine is frozen (PyInstaller) with ffmpeg and packed with the UI into an NSIS installer; a version pushed to `main` becomes a GitHub release with the installer attached, built and smoke-tested in CI. A test on every push keeps all version numbers in step.
 - GPU pack: the installed app downloads NVIDIA's CUDA and cuDNN libraries once (about 1.2 GB, from NVIDIA's packages on PyPI, checksum-verified) and then runs the AI on the graphics card; without it, on the processor.
 - Updates: Settings → Updates checks RecPro's GitHub releases (*Download for me*, *Ask me first* or *Off*), shows what's new, and installs only when you choose. *Strict offline* stops the checks.
+- Videos: faces are followed through the whole video (1 frame a second) and kept as one face per person with when they're on screen; private content, categories and scenes are found frame by frame, with their time ranges. Private content anywhere in a video makes it private.
+- Video moments in search: Find and search say "at 0:14" on a video and open it where the person, category, scene or words are; age, gender and expression filters show where the matching faces are.
+- Viewer: lanes under a video show who and what is on screen when; click a stretch to jump there.
+- Playable copies: a video the player can't open (HEVC without a decoder, AVI, old codecs) gets an H.264 copy on demand, on the NVIDIA encoder when there is one.
+- Speech search: Whisper large-v3 turbo transcribes what is said in videos (on this PC, on the processor); search finds the words and opens the video where they're said, and the viewer lists the transcript with times.
+- Faces that aren't visible: Review → *Face hidden?* suggests photos from the same outing where someone may be with their face turned away or too unclear; a yes counts in Find.
 
 ### Fixed
 - A clean install no longer hangs while preparing photos: SciPy (for the perceptual hash) is loaded at start-up, not first by the quick pass's worker threads, whose load of its BLAS library never finished.
 - New photos no longer land in Private or *Please check* because of a relative score: private content uses SigLIP's absolute probability and NudeNet again (0 of 729 safe photos private, as validated), and stored relative scores are dropped once on upgrade.
 - Documents, chats and bills no longer fill photo categories (a chat about a party as *Party*, a white ID card as *Snow*, a laptop repair invoice as *Laptop*): categories have "it's text" alternatives now.
 - Search keeps Hindi, Marathi and other Indic words whole; their vowel signs used to split them.
+- Private items keep nothing readable: words read in them and speech in them are deleted when they become private and aren't read while private.

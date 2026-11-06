@@ -28,8 +28,8 @@ Everything RecPro creates is in its data folder, chosen during setup (for exampl
 
 | Path | Contents |
 |---|---|
-| `recpro.db` | Library index, faces, people, labels, text read from photos (ID numbers masked), your answers, settings, operation history |
-| `thumbs/`, `previews/`, `faces/` | Small images for the interface |
+| `recpro.db` | Library index, faces, people, labels, text read from photos and speech from videos (ID numbers masked), when people and categories appear in videos, your answers, settings, operation history |
+| `thumbs/`, `previews/`, `faces/` | Small images for the interface, and playable copies of videos the player can't open (never of private videos) |
 | `private/` | Encrypted thumbnails and previews of private items |
 | `models/` | Downloaded AI models |
 | `logs/` | Engine logs (file paths, no image content) |
@@ -48,7 +48,8 @@ Romance, suggestive, nudity and sexual content is detected with the same care as
 - **After unlocking:** two toggles appear, *Blur* and *Show private items everywhere*.
 - **Locks again automatically** after a period without activity (default 5 minutes), when Windows locks or sleeps, when the app closes, or instantly with **Ctrl+L**. Locking resets both toggles.
 - **Forgot your PIN?** A reset wipes the private labels and encrypted thumbnails and re-runs detection. It never reveals anything.
-- New photos are checked before they are shown; until then they appear blurred.
+- New photos are checked before they are shown; until then they appear blurred. Videos are checked frame by frame, and private content in any part of a video makes the whole video private.
+- **Nothing readable of private items is kept:** words read in them and speech in them are deleted when they become private and aren't read or transcribed while private, and private videos never get a playable copy. If an item stops being private, it's read and listened to again.
 - The *Sensitive* filter cannot be combined with child age groups.
 
 **Limit:** the lock protects what RecPro shows and stores. Original files stay in their folders, so anyone signed in to your Windows account can still open them in File Explorer, unless you move them somewhere safer with Find and Move.

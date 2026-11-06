@@ -12,6 +12,7 @@ Nothing leaves your PC. Faces, photos, videos and text are analyzed on this comp
 | **Never miss** | When the AI isn't sure, it asks ("Is this Rohit?") instead of guessing. Every answer re-scores similar photos and makes RecPro better for you. |
 | **Copy and move safely** | Copy → verify (BLAKE3 checksum of every file) → ask → move originals to the RecPro Bin. Everything can be undone; only *Empty bin* deletes permanently. |
 | **Private section** | Romance, suggestive and nudity content is detected with the same ask-when-unsure care as faces, kept in a PIN- or password-locked, blurred Private section. After you unlock, toggles let you turn blur off or show private items everywhere; it locks itself again automatically. |
+| **Videos** | Faces are followed through every video: see who is on screen when, jump straight to them from a search, find words that were said, and spot private content in part of a video. Formats the player can't open get a playable copy. |
 | **Search by anything** | Activities, moods, objects, pets, documents and IDs (Aadhaar, PAN, passport, driving licence, voter ID), screenshots by app, text inside images, speech in videos, places and dates. *(see [Roadmap](docs/ROADMAP.md) for what's built today)* |
 
 ## Status

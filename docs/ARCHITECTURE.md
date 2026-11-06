@@ -55,8 +55,9 @@ Each stage owns a version column on `media`. A row needs a stage while its colum
 2. **Private pre-check**: a fast sensitivity check on the thumbnail before it is shown *(M3)*.
 3. **Deep pass**: decode once, run every model batched on the GPU: faces, embeddings, attributes, SigLIP 2, sensitive ensemble, objects, quality *(M2–M4)*.
 4. **Text pass** (`jobs/text.py`): reads the words in photos whose stored category scores say document, ID card, screenshot or meme (or whose file looks like a screenshot), then finds ID documents and screenshot apps. See [Text in photos](#text-in-photos-mlocrpy-jobstextpy-idspy-screenspy).
-5. **Video pass**: frames, face tracks, per-person time segments, sensitive segments, speech *(M6)*.
-6. **Grouping**: clustering, person matching, tiers, review queue, duplicates, events *(M2, M7)*.
+5. **Video pass** (`jobs/video.py`): each video watched once: faces tracked into one face per person with the time spans they're on screen, private content and categories with their spans, and scene frames for searching moments. See [Videos](#videos-jobsvideopy-mltrackspy-framelabelspy-libraryvideopy).
+6. **Speech pass** (`jobs/speech.py`): what is said in each video, with times. The last and slowest stage.
+7. **Grouping**: clustering, person matching, tiers, review queue *(M2)*; duplicates and events arrive with M7.
 
 The UI's status bar and Home page show per-stage progress and rate; folders being searched right now are processed first (`Indexer.focus`).
 
@@ -135,6 +136,33 @@ Before text is stored in the `texts` FTS5 table (trigram tokenizer, so any 3+ ch
 **Screenshots.** `looks_like_screenshot` scores the file: named like one (0.9), or screen-sized without camera EXIF (0.75 for PNG, 0.6 for JPEG), or a phone-shaped PNG (0.55). App keywords on the screen sort screenshots by app: WhatsApp, Instagram, Telegram, Facebook, YouTube, X, payments (UPI), shopping, email, bank messages and maps; chat apps also count towards *Chat screenshots* and social apps towards *Social media posts*. Apps are only read from screenshots, so a payment QR standee photographed in a shop isn't a payment screenshot.
 
 **Labels.** ID documents (`id.*`) and app screenshots are categories without prompts, filled by the sources `ocr` (rule scores: 1.0 sure, 0.6 please check) and `file` (screenshot file facts), next to SigLIP's own score where a category has one (*Payments*, *Maps*, *Screenshots*). Explore shows ID documents as their own group.
+
+## Videos (`jobs/video.py`, `ml/tracks.py`, `framelabels.py`, `library/video.py`)
+
+**Frames.** One ffmpeg process decodes each video once and streams frames as raw RGB, upright (rotation metadata applied) and scaled to 1024 px on the long side: 1 a second, sparser past 10 minutes (at most 600 frames, at least one every 10 seconds). Frame *k* is at *k*/fps seconds. The pass runs after every photo stage, one video per batch, so new photos keep priority.
+
+**People.** Faces are detected and embedded per frame, then linked into tracks: the same face in the next frames (cosine ≥ 0.40), or a weaker match (≥ 0.20) where the box barely moved, so a turned head or motion blur stays in its track; a face may be missing for up to 3 frames. Tracks of the same person that never share a frame are merged (cosine of their quality-weighted mean embeddings ≥ 0.45), so someone who leaves and comes back is one face of the video. That keeps the people logic's rule of one face per person per photo. Each face stores its best frame (for the crop), its mean embedding, and its time spans (`face_spans`). A single weak detection is dropped. Analysing a video again carries names, answers, votes and covers to the new face with the closest embedding.
+
+**Private content and categories.** NudeNet checks every sampled frame. SigLIP 2 embeds a frame every 2 seconds and keeps it only when the picture changed (cosine < 0.92 to the last kept frame), so a static video costs a few vectors. A video's labels are the best score any frame reaches, and `label_spans` records where each label reaches *please check*. Each frame counts until the next kept one, and the ranges are joined across sources (`framelabels.py`). Private content anywhere in a video makes the whole video private. Category re-scoring (a new category, a taxonomy version) covers videos through their stored frames, and videos are watched again when a face, private-content or SigLIP model arrives.
+
+**Search and viewer.** Find attaches every searched person's spans to a video and opens it at the first. Universal search does the same for people, categories, age, gender or expression filters (the matching faces' spans), and descriptions (every scene frame is scored and the best one is the match). The viewer draws one lane per person and per category or private label under the video, with a playhead; clicking a stretch jumps there.
+
+**Playable copies** (`library/playable.py`). When the player can't open a video (HEVC without a decoder, AVI, old codecs), the engine makes an H.264 copy on demand: NVENC when available, else x264, the long side at most 1280 px, AAC sound, fast start. It's kept in `previews/` and served with range requests; the viewer shows progress and switches over. Private videos never get one, a copy is deleted when its video becomes private, and copies of removed or private videos are cleaned up at start-up.
+
+## Speech (`jobs/speech.py`, `ml/speech.py`)
+
+ffmpeg decodes a video's sound as 16 kHz mono float32 (up to 3 hours). faster-whisper runs Whisper large-v3 turbo (Whisper small in the *fast* set) with its Silero voice detector, so only speech is transcribed. Segments Whisper itself rates as non-speech (no-speech probability > 0.6 and log-probability < −1) are dropped, and segments are decoded independently (`condition_on_previous_text=False`), so one bad segment can't drag the rest into a loop. CTranslate2's GPU build needs CUDA 12's cuBLAS and RecPro carries CUDA 13, so speech runs on the processor (int8, all physical cores) unless CUDA 12 is present. That's roughly real time on a long talk, and about 13 s for the 18 s test video, whose sound is a 30 s window. Segments go into the `speech` FTS5 table (trigram, any script) with their times and ID numbers masked. Search counts them like words in photos and opens the video where they're said; the viewer lists them under *Said in this video*.
+
+faster-whisper declares the CPU `onnxruntime`, which would overwrite `onnxruntime-gpu` (both install the `onnxruntime` module), so `[tool.uv] override-dependencies` drops it; the voice detector runs on `onnxruntime-gpu`.
+
+## Faces that aren't visible (`review/hidden.py`)
+
+For a named person, photos from the same directory within 3 hours of a photo where they were recognised are candidates, minus the ones that already show their face, were answered, or have a face you said isn't them. Two kinds are suggested:
+
+- a face too unclear to recognise (quality < 0.45) that still looks a little like them (top-3 mean cosine ≥ 0.10 to their faces; strangers sit around 0 ± 0.1), ranked by resemblance;
+- no face found, but SigLIP sees a person: a softmax of "a person seen from behind" and similar prompts against "no people" prompts, ≥ 0.4.
+
+A photo whose faces are all clear and someone else's isn't suggested: the person isn't recognisable there, which is different from their face being hidden. Answers are stored in `media_people`. A yes counts in Find as a sure match without a face, a no is never asked again, and Find tells you how many are left for the person searched.
 
 ## File operations (`ops/service.py`)
 

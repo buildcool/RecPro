@@ -69,6 +69,16 @@ engine/.venv/Scripts/python scripts/make_samples.py .testdata/samples
 engine/.venv/Scripts/python -I scripts/make_text_samples.py .testdata/text-samples
 ```
 
+### Video samples
+
+`scripts/make_video_samples.py` makes an 18 s slideshow from LFW photos (Colin Powell, George W Bush, Powell again), in H.264 and HEVC, with a sentence spoken by Windows text-to-speech from about 1 s. `truth.json` records who is on screen when and what is said. Add the folder to see video people lanes, moments in search and speech search:
+
+```bash
+engine/.venv/Scripts/python -I scripts/make_video_samples.py .testdata/lfw/lfw.tgz .testdata/video-samples
+```
+
+The video and speech tests make their own small videos with ffmpeg (CI installs it). Speech needs the speech model (Settings → AI models, 1.6 GB from Hugging Face into the data folder).
+
 ### Keep downloads and caches on D:
 
 This project keeps every download off C:. Before installing Python packages, point uv's cache and temp folders into the repository (npm already uses `.cache/npm` through the project `.npmrc`):
