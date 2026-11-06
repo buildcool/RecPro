@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      # the repository's .npmrc points npm's cache at the dev PC's D: drive; CI keeps its own
+      npm_config_cache: ${{ github.workspace }}/../npm-cache
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
