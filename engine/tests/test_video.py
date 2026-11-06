@@ -156,3 +156,29 @@ def test_video_pass_people_spans_private_spans_and_scenes(ctx, tmp_path, monkeyp
         hit = next(h for h in res["sure"] + res["check"] if h["id"] == mid)
         assert [(s["start_ms"], s["end_ms"]) for s in hit["spans"]] == [(0, 2000), (6000, 8000)]
         assert hit["at_ms"] == 0 and hit["spans"][0]["name"] == "Test Red"
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg is needed to make and read the test video")
+def test_playable_copy_for_a_format_the_player_cannot_open(ctx, tmp_path):
+    from tests.conftest import wait_for
+
+    folder = tmp_path / "Old"
+    folder.mkdir()
+    subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=320x240:d=2:r=10",
+                    "-c:v", "mpeg4", str(folder / "MOV00001.avi")], check=True)
+    add_and_index(ctx, folder)
+    db, pl = ctx.db, ctx.services["playable"]
+    row = db.q1("SELECT * FROM media WHERE kind='video'")
+    mid = row["id"]
+    assert pl.request(row)["state"] in ("making", "ready")
+    wait_for(lambda: pl.state(mid)["state"] in ("ready", "failed"), timeout=60)
+    assert pl.state(mid)["state"] == "ready"
+    probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name",
+                            "-of", "csv=p=0", str(pl.path(mid))], capture_output=True, text=True)
+    assert probe.stdout.strip() == "h264"
+    # private videos never get a readable copy, and becoming private deletes one
+    db.x("UPDATE media SET sens_state='private' WHERE id=?", (mid,))
+    with pytest.raises(PermissionError):
+        pl.request(db.q1("SELECT * FROM media WHERE id=?", (mid,)))
+    ctx.services["private"].on_became_private([mid])
+    assert not pl.path(mid).exists()

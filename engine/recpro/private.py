@@ -290,6 +290,10 @@ class Private:
         """No readable copy of a private item stays in the data folder."""
         from .library.imaging import shard
 
+        playable = self.ctx.services.get("playable")
+        if playable is not None:
+            playable.forget(media_ids)  # type: ignore[attr-defined]
+
         for mid in media_ids:
             for base in (self.ctx.paths.thumbs, self.ctx.paths.previews):
                 try:

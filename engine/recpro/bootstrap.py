@@ -19,6 +19,7 @@ SERVICE_MODULES = [
     ("semantic_index", "recpro.semindex"),
     ("taxonomy", "recpro.taxonomy"),
     ("private", "recpro.private"),
+    ("playable", "recpro.library.playable"),
 ]
 
 

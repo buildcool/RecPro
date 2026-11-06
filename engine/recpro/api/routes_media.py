@@ -308,6 +308,44 @@ def original(media_id: int, request: Request, c: Context = Depends(ctx)) -> Resp
     return range_response(path, mime, request.headers.get("range"))
 
 
+def _playable(c: Context):
+    svc = c.services.get("playable")
+    if svc is None:
+        raise HTTPException(503, "Playable copies are unavailable")
+    return svc
+
+
+@router.get("/api/media/{media_id}/playable")
+def playable_state(media_id: int, c: Context = Depends(ctx)) -> dict[str, Any]:
+    _row(c, media_id)
+    return _playable(c).state(media_id)  # type: ignore[attr-defined]
+
+
+@router.post("/api/media/{media_id}/playable")
+def playable_request(media_id: int, c: Context = Depends(ctx)) -> dict[str, Any]:
+    """Makes an H.264 copy of a video the app can't play (HEVC without a decoder, old codecs)."""
+    r = _row(c, media_id)
+    if r["kind"] != "video":
+        raise HTTPException(400, "Only videos need a playable copy")
+    try:
+        return _playable(c).request(r)  # type: ignore[attr-defined]
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+
+
+@router.get("/media/playable/{media_id}")
+def playable_file(media_id: int, request: Request, c: Context = Depends(ctx)) -> Response:
+    r = _row(c, media_id)
+    if _locked_private(c, r):
+        raise HTTPException(423, "Private item")
+    path = _playable(c).path(media_id)  # type: ignore[attr-defined]
+    if not path.exists():
+        raise HTTPException(404, "No playable copy yet")
+    return range_response(path, "video/mp4", request.headers.get("range"))
+
+
 def range_response(path: Path, mime: str, range_header: str | None) -> Response:
     size = path.stat().st_size
     headers = {"Accept-Ranges": "bytes", "Cache-Control": "no-store"}
