@@ -41,24 +41,12 @@ class SemanticStage:
     def where(self) -> str:
         return "quick_v >= 1 AND width IS NOT NULL"
 
-    def label_matrix(self, model) -> tuple[list[Any], np.ndarray, list[int]]:
-        """(label defs, prompt embedding matrix, label index of each prompt)."""
-        key = model.name
-        cached = self._prompt_cache.get(key)
-        if cached is not None:
-            return cached
+    def label_defs(self) -> list[Any]:
         defs = list(SENSITIVE)
         extra = self.ctx.services.get("taxonomy")
         if extra is not None:
             defs += extra.defs()  # type: ignore[attr-defined]
-        prompts, owner = [], []
-        for i, d in enumerate(defs):
-            for p in d.prompts:
-                prompts.append(p)
-                owner.append(i)
-        T = model.embed_texts(prompts)
-        self._prompt_cache[key] = (defs, T, owner)
-        return defs, T, owner
+        return defs
 
     def invalidate_prompts(self) -> None:
         self._prompt_cache.clear()
@@ -71,19 +59,25 @@ class SemanticStage:
         imgs = list(self.pool.map(lambda r: load_rgb(r["path"], 768), rows))
         ok = [(r, im) for r, im in zip(rows, imgs) if im is not None]
         E = model.embed_images([im for _, im in ok]) if ok else np.zeros((0, model.dim), np.float32)
-        defs, T, owner = self.label_matrix(model)
-        P = model.prob(E @ T.T) if len(ok) else np.zeros((0, len(owner)))
-        owner_arr = np.array(owner)
         with self.ctx.db.tx() as c:
             for (r, _), e in zip(ok, E):
                 c.execute(
                     "INSERT OR REPLACE INTO embeddings(media_id, model, frame_ms, vec) VALUES(?,?,-1,?)",
                     (r["id"], model.name, e.astype(np.float16).tobytes()),
                 )
-        for k, (r, _) in enumerate(ok):
-            for i, d in enumerate(defs):
-                p = float(P[k, owner_arr == i].max()) if (owner_arr == i).any() else 0.0
-                labels.record(r["id"], d.key, {"siglip": p}, d.grp)  # type: ignore[attr-defined]
+        if ok:
+            from ..taxonomy import score_labels
+
+            defs = self.label_defs()
+            scores = score_labels(model, E, defs, self._prompt_cache)
+            labels.record_many(  # type: ignore[attr-defined]
+                [
+                    (r["id"], d.key, {src: float(v[k]) for src, v in scores[d.key].items()}, d.grp)
+                    for d in defs
+                    if d.key in scores
+                    for k, (r, _) in enumerate(ok)
+                ]
+            )
         with self.ctx.db.tx() as c:
             c.executemany("UPDATE media SET sem_v=? WHERE id=?", [(SEM_V, r["id"]) for r in rows])
         labels.update_sens_state([r["id"] for r in rows])  # type: ignore[attr-defined]

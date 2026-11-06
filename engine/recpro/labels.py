@@ -22,7 +22,26 @@ THRESHOLDS: dict[str, dict[str, tuple[float, float]]] = {
     "nudenet": {"never_miss": (0.25, 0.55), "balanced": (0.35, 0.55), "fewer": (0.45, 0.50)},
     "siglip_sensitive": {"never_miss": (0.05, 0.45), "balanced": (0.10, 0.45), "fewer": (0.20, 0.40)},
     "siglip": {"never_miss": (0.05, 0.35), "balanced": (0.10, 0.35), "fewer": (0.20, 0.30)},
+    # relative SigLIP score: the category against "nothing special" prompts in its group
+    "siglip_rel": {"never_miss": (0.12, 0.50), "balanced": (0.20, 0.50), "fewer": (0.30, 0.45)},
+    "siglip_rel_sensitive": {"never_miss": (0.15, 0.60), "balanced": (0.25, 0.60), "fewer": (0.35, 0.55)},
+    # subjective groups (moods, kinds of people, memes): only very clear cases are "sure"
+    "siglip_rel_strict": {"never_miss": (0.20, 0.70), "balanced": (0.30, 0.70), "fewer": (0.40, 0.65)},
+    "siglip_strict": {"never_miss": (0.08, 0.45), "balanced": (0.15, 0.45), "fewer": (0.25, 0.40)},
+    # your personal classifier for a category (trained on your answers)
+    "personal": {"never_miss": (0.30, 0.80), "balanced": (0.40, 0.80), "fewer": (0.50, 0.75)},
 }
+
+STRICT_GROUPS = ("mood", "people", "entertainment")
+
+
+def source_key(src: str, grp: str) -> str:
+    """Private content and subjective groups use their own thresholds."""
+    if grp == "sensitive" and f"{src}_sensitive" in THRESHOLDS:
+        return f"{src}_sensitive"
+    if grp in STRICT_GROUPS and f"{src}_strict" in THRESHOLDS:
+        return f"{src}_strict"
+    return src
 
 
 @dataclass
@@ -130,7 +149,7 @@ class Labels:
         order = {"no": 0, "check": 1, "sure": 2}
         best, score, src_best = "no", 0.0, None
         for src, v in values.items():
-            source = "siglip_sensitive" if (src == "siglip" and grp == "sensitive") else src
+            source = source_key(src, grp)
             t = self.tier_of(source, v, mode)
             if order[t] > order[best] or (t == best and v > score):
                 best, score, src_best = t, v, src
@@ -155,12 +174,56 @@ class Labels:
         )
         return best, score
 
+    def record_many(self, items: list[tuple[int, str, dict[str, float], str]]) -> None:
+        """Bulk version of record(): (media_id, key, values, grp). One query + one transaction."""
+        if not items:
+            return
+        order = {"no": 0, "check": 1, "sure": 2}
+        lids = {key: self.id(key) for _, key, _, _ in items}
+        mids = sorted({m for m, _, _, _ in items})
+        existing: dict[tuple[int, int], str] = {}
+        for i in range(0, len(mids), 900):
+            chunk = mids[i : i + 900]
+            for r in self.db.q(
+                f"SELECT media_id, label_id, source FROM media_labels WHERE media_id IN ({','.join('?' * len(chunk))})", chunk
+            ):
+                existing[(r["media_id"], r["label_id"])] = r["source"] or ""
+        modes = {g: self.mode(g) for g in {g for _, _, _, g in items}}
+        upserts, deletes = [], []
+        for mid, key, values, grp in items:
+            lid = lids[key]
+            prev = existing.get((mid, lid))
+            merged = dict(values)
+            if prev and prev.startswith("{"):
+                try:
+                    merged = {**json.loads(prev), **values}
+                except ValueError:
+                    pass
+            best, score = "no", 0.0
+            for src, v in merged.items():
+                source = source_key(src, grp)
+                if source not in THRESHOLDS:
+                    continue
+                t = self.tier_of(source, float(v), modes[grp])
+                if order[t] > order[best] or (t == best and v > score):
+                    best, score = t, float(v)
+            if prev is None and best == "no" and score < 0.01:
+                continue
+            upserts.append((mid, lid, round(score, 4), best, json.dumps({k: round(float(v), 4) for k, v in merged.items()})))
+        with self.db.tx() as c:
+            c.executemany(
+                """INSERT INTO media_labels(media_id, label_id, score, tier, state, source) VALUES(?,?,?,?, 'ai', ?)
+                   ON CONFLICT(media_id, label_id) DO UPDATE SET score=excluded.score, tier=excluded.tier, source=excluded.source""",
+                upserts,
+            )
+            c.executemany("DELETE FROM media_labels WHERE media_id=? AND label_id=? AND state='ai'", deletes)
+
     def record_merged(self, media_id: int, key: str, values: dict[str, float], grp: str, state: str) -> tuple[str, float]:
         mode = self.mode(grp)
         order = {"no": 0, "check": 1, "sure": 2}
         best, score = "no", 0.0
         for src, v in values.items():
-            source = "siglip_sensitive" if (src == "siglip" and grp == "sensitive") else src
+            source = source_key(src, grp)
             t = self.tier_of(source, v, mode)
             if order[t] > order[best] or (t == best and v > score):
                 best, score = t, v
@@ -188,7 +251,7 @@ class Labels:
             mode = self.mode(r["grp"])
             best, score = "no", 0.0
             for src, v in values.items():
-                source = "siglip_sensitive" if (src == "siglip" and r["grp"] == "sensitive") else src
+                source = source_key(src, r["grp"])
                 if source not in THRESHOLDS:
                     continue
                 t = self.tier_of(source, float(v), mode)

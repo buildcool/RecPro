@@ -16,6 +16,8 @@ SERVICE_MODULES = [
     ("ops", "recpro.ops.service"),
     ("people", "recpro.review.people"),
     ("labels", "recpro.labels"),
+    ("semantic_index", "recpro.semindex"),
+    ("taxonomy", "recpro.taxonomy"),
     ("private", "recpro.private"),
 ]
 
