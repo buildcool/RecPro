@@ -218,4 +218,9 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX label_spans_media ON label_spans(media_id, label_id);
     """,
+    # v5 — what is said in videos, with times (trigram search in any script)
+    """
+    ALTER TABLE media ADD COLUMN speech_v INTEGER NOT NULL DEFAULT 0;
+    CREATE VIRTUAL TABLE speech USING fts5(media_id UNINDEXED, start_ms UNINDEXED, end_ms UNINDEXED, lang UNINDEXED, content, tokenize='trigram');
+    """,
 ]

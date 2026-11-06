@@ -21,6 +21,7 @@ dependencies = [
   "argon2-cffi>=25.1.0",
   "pynacl>=1.6.2",
   "python-multipart>=0.0.33",
+  "faster-whisper>=1.2.1",
 ]
 
 [dependency-groups]
@@ -40,6 +41,9 @@ build = [
 
 [tool.uv]
 default-groups = ["dev", "cuda"]
+# faster-whisper asks for the CPU onnxruntime, which would overwrite onnxruntime-gpu (both install the
+# "onnxruntime" module); onnxruntime-gpu runs its voice detection just as well, so drop the request
+override-dependencies = ["onnxruntime ; sys_platform == 'never'"]
 
 [build-system]
 requires = ["hatchling"]

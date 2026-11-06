@@ -180,6 +180,35 @@ MODELS: list[ModelSpec] = [
     ),
 ]
 
+# Speech is appended to the manifest below, after the image models.
+SPEECH_MODELS: list[ModelSpec] = [
+    ModelSpec(
+        id="speech",
+        name="Speech recognition (Whisper large-v3 turbo)",
+        purpose="Turns what is said in videos into searchable text (Hindi, English and 97 more languages)",
+        license="MIT",
+        profiles=("best",),
+        approx_size=1_622_000_000,
+        folder="speech/large-v3-turbo",
+        hf_repo="dropbox-dash/faster-whisper-large-v3-turbo",  # formerly mobiuslabsgmbh/
+        hf_subdirs=("",),
+        required_files=("model.bin", "config.json", "tokenizer.json", "preprocessor_config.json"),
+    ),
+    ModelSpec(
+        id="speech-fast",
+        name="Speech recognition (Whisper small)",
+        purpose="Smaller, faster speech recognition",
+        license="MIT",
+        profiles=("fast",),
+        approx_size=486_000_000,
+        folder="speech/small",
+        hf_repo="Systran/faster-whisper-small",
+        hf_subdirs=("",),
+        required_files=("model.bin", "config.json", "tokenizer.json"),
+    ),
+]
+MODELS += SPEECH_MODELS
+
 PINNED_FILE = "pinned-hashes.json"  # sha256 of release assets, recorded at first verified download
 
 

@@ -217,6 +217,10 @@ def media_detail(media_id: int, c: Context = Depends(ctx)) -> dict[str, Any]:
             f["spans"] = [{"start_ms": s, "end_ms": e} for s, e in fs.get(f["id"], [])]
         # a private video only gets this far while Private is unlocked
         d["label_spans"] = label_spans(c.db, [media_id], [l["label_id"] for l in labels]).get(media_id, [])
+        d["speech"] = [
+            {"start_ms": s["start_ms"], "end_ms": s["end_ms"], "text": s["content"]}
+            for s in c.db.q("SELECT start_ms, end_ms, content FROM speech WHERE media_id=? ORDER BY start_ms", (media_id,))
+        ]
     d["text"] = text
     return d
 

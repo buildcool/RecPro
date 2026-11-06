@@ -92,6 +92,27 @@ class ML:
                 self._engines[key] = m
             return m
 
+    def speech_id(self) -> str | None:
+        """Which speech model to use: the profile's choice if installed, else whichever is."""
+        prefer = "speech" if self.ctx.settings.get("models.profile", "best") == "best" else "speech-fast"
+        for mid in (prefer, "speech", "speech-fast"):
+            if self.has(mid):
+                return mid
+        return None
+
+    def speech(self):
+        mid = self.speech_id()
+        if mid is None:
+            return None
+        with self._lock:
+            m = self._engines.get(mid)
+            if m is None:
+                from .speech import Transcriber
+
+                m = Transcriber(self.models.path(mid), use_gpu=self.use_gpu)
+                self._engines[mid] = m
+            return m
+
     def semantic_id(self) -> str | None:
         """Which SigLIP model to use: the profile's choice if installed, else whichever is."""
         prefer = "siglip2" if self.ctx.settings.get("models.profile", "best") == "best" else "siglip2-fast"

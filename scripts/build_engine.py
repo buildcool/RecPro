@@ -25,8 +25,9 @@ WORK = Path(os.environ.get("RECPRO_BUILD", ROOT / ".cache" / "pyinstaller"))
 # imported by name at run time (services, uvicorn's protocol and loop choice, watchdog's observer,
 # send2trash's platform module), so PyInstaller can't see them in the code
 COLLECT_SUBMODULES = ["recpro", "uvicorn", "watchdog", "send2trash", "websockets", "httptools"]
-COLLECT_ALL = ["pillow_heif"]  # its libheif DLLs sit next to the extension module
-COPY_METADATA = ["recpro-engine", "fastapi", "uvicorn", "pydantic", "starlette", "onnxruntime-gpu", "tokenizers",
+COLLECT_ALL = ["pillow_heif", "faster_whisper", "ctranslate2"]  # libheif DLLs next to the module; the voice
+# detector model shipped inside faster-whisper; CTranslate2's own DLLs (MKL/oneDNN, cuDNN loader)
+COPY_METADATA = ["recpro-engine", "fastapi", "uvicorn", "pydantic", "starlette", "onnxruntime-gpu", "tokenizers", "faster-whisper", "ctranslate2",
                  "scikit-learn", "argon2-cffi", "pynacl", "pillow-heif", "watchdog", "python-multipart"]
 EXCLUDE = ["tkinter", "matplotlib", "IPython", "pytest", "torch", "tensorflow", "pandas", "skimage", "nvidia",
            "PyQt5", "PySide6", "notebook"]

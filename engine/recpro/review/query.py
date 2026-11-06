@@ -245,8 +245,12 @@ def run(c: Context, q: str, overrides: dict[str, Any] | None = None, limit: int 
                     continue
                 new[mid] = (tier, float(pr) if not p["people"] else min(base_s, float(pr)))
             scores = new
-        # words inside photos (OCR) also count
+        # words inside photos (OCR) and said in videos also count
         text_hits = _text_matches(c, sem_text, set(cand))
+        for mid, said in _speech_matches(c, sem_text, set(cand)).items():
+            text_hits.add(mid)
+            sp = [{"name": f"“{sem_text}”", "start_ms": s, "end_ms": e} for s, e in said]
+            moments[mid] = {"spans": sp, "at_ms": sp[0]["start_ms"]}
         for mid in text_hits:
             if mid not in scores or scores[mid][0] != "sure":
                 scores[mid] = ("sure", 0.99)
@@ -293,6 +297,25 @@ def _relative(model: Any, E: np.ndarray, T: np.ndarray, B: np.ndarray) -> np.nda
 def _text_thresholds(c: Context) -> tuple[float, float]:
     mode = str(c.settings.get("sensitivity.categories", "balanced"))
     return {"never_miss": (0.50, 0.10), "balanced": (0.50, 0.18), "fewer": (0.45, 0.28)}.get(mode, (0.50, 0.18))
+
+
+def _speech_matches(c: Context, text: str, allowed: set[int]) -> dict[int, list[tuple[int, int]]]:
+    """Videos where the words are said, with when."""
+    if len(text) < 3:
+        return {}
+    try:
+        rows = c.db.q(
+            "SELECT media_id, start_ms, end_ms FROM speech WHERE speech MATCH ? ORDER BY media_id, start_ms LIMIT 5000",
+            ('"' + text.replace('"', " ") + '"',),
+        )
+    except Exception:
+        return {}
+    out: dict[int, list[tuple[int, int]]] = {}
+    for r in rows:
+        mid = int(r["media_id"])
+        if mid in allowed:
+            out.setdefault(mid, []).append((int(r["start_ms"]), int(r["end_ms"])))
+    return out
 
 
 def _text_matches(c: Context, text: str, allowed: set[int]) -> set[int]:

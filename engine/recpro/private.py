@@ -293,6 +293,13 @@ class Private:
         playable = self.ctx.services.get("playable")
         if playable is not None:
             playable.forget(media_ids)  # type: ignore[attr-defined]
+        # words read in it or said in it aren't kept either; they come back if it stops being private
+        with self.db.tx() as c:
+            for i in range(0, len(media_ids), 900):
+                chunk = media_ids[i : i + 900]
+                marks = ",".join("?" * len(chunk))
+                c.execute(f"DELETE FROM texts WHERE media_id IN ({marks})", chunk)
+                c.execute(f"DELETE FROM speech WHERE media_id IN ({marks})", chunk)
 
         for mid in media_ids:
             for base in (self.ctx.paths.thumbs, self.ctx.paths.previews):
@@ -311,9 +318,9 @@ class Private:
         for mid in media_ids:
             for kind in ("thumb", "preview"):
                 self._path(kind, mid).unlink(missing_ok=True)
-        # recreate a normal thumbnail
+        # recreate a normal thumbnail, and read and listen again
         with self.db.tx() as c:
-            c.executemany("UPDATE media SET quick_v=0 WHERE id=?", [(m,) for m in media_ids])
+            c.executemany("UPDATE media SET quick_v=0, text_v=0, speech_v=0 WHERE id=?", [(m,) for m in media_ids])
         ix = self.ctx.services.get("indexer")
         if ix is not None:
             ix.wake()  # type: ignore[attr-defined]

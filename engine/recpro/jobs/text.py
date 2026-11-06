@@ -64,9 +64,10 @@ class TextStage:
 
     def where(self) -> str:
         # wait for the category scores that decide what to read, when that model is installed
+        # private items' words are never stored (nothing readable of them stays on disk)
         if self.ml.semantic_id() is not None:  # type: ignore[attr-defined]
-            return "quick_v >= 1 AND sem_v >= 1 AND width IS NOT NULL"
-        return "quick_v >= 1 AND width IS NOT NULL"
+            return "quick_v >= 1 AND sem_v >= 1 AND width IS NOT NULL AND sens_state NOT IN ('private','review')"
+        return "quick_v >= 1 AND width IS NOT NULL AND sens_state NOT IN ('private','review')"
 
     # ---- which photos to read --------------------------------------------------------------
     def _category_scores(self, ids: list[int]) -> dict[int, dict[str, float]]:

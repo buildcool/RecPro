@@ -19,6 +19,25 @@ log = logging.getLogger("recpro.video")
 MAX_FRAMES = 600  # longer videos are sampled more sparsely
 
 
+MAX_AUDIO_SEC = 3 * 3600
+
+
+def audio(path: str, max_sec: int = MAX_AUDIO_SEC) -> np.ndarray | None:
+    """The sound of a video as 16 kHz mono float32 (what speech recognition reads), or None."""
+    ff = ffmpeg_bin()
+    if not ff:
+        raise RuntimeError("ffmpeg is not available")
+    cmd = [ff, "-nostdin", "-v", "error", "-i", path, "-vn", "-sn", "-ac", "1", "-ar", "16000", "-t", str(max_sec), "-f", "f32le", "-"]
+    cp = subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW, timeout=max(120, max_sec // 4))
+    if cp.returncode != 0:
+        err = cp.stderr.decode("utf-8", "replace")
+        if "does not contain any stream" in err or "matches no streams" in err:
+            return None  # no sound track
+        raise RuntimeError(err.strip()[:300] or "ffmpeg failed")
+    pcm = np.frombuffer(cp.stdout, np.float32)
+    return pcm if pcm.size >= 16000 else None
+
+
 def sample_rate(duration: float | None, max_frames: int = MAX_FRAMES) -> float:
     """1 frame a second, or fewer for long videos (at least one every 10 seconds)."""
     if not duration or duration <= 0:
