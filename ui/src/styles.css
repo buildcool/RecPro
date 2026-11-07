@@ -25,6 +25,9 @@
   --private: #6d3fd9;
   --private-soft: #efe8fd;
   --thumb: #e9e8e4;
+  --map-water: #dfe8ef;
+  --map-land: #f7f6f2;
+  --map-border: rgba(24, 24, 22, 0.22);
   --overlay: rgba(10, 10, 10, 0.45);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 8px 24px rgba(0, 0, 0, 0.08);
   color-scheme: light;
@@ -53,6 +56,9 @@
   --private: #a684f5;
   --private-soft: #2a1f45;
   --thumb: #262626;
+  --map-water: #121820;
+  --map-land: #262626;
+  --map-border: rgba(255, 255, 255, 0.16);
   --overlay: rgba(0, 0, 0, 0.6);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.45);
   color-scheme: dark;
@@ -129,6 +135,27 @@ body {
 .blur-private {
   filter: blur(28px) saturate(0.6);
   transform: scale(1.15);
+}
+
+/* towns on the map, for orientation: quieter than the places with photos */
+.map-town {
+  font-size: 10.5px;
+  fill: var(--fg-2);
+  stroke: var(--map-land);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  paint-order: stroke;
+}
+
+/* place names on the map: readable over land, water and photos */
+.map-label {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--fg);
+  stroke: var(--surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+  paint-order: stroke;
 }
 
 @keyframes shimmer {

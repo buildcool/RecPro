@@ -222,6 +222,16 @@ def media_detail(media_id: int, c: Context = Depends(ctx)) -> dict[str, Any]:
             for s in c.db.q("SELECT start_ms, end_ms, content FROM speech WHERE media_id=? ORDER BY start_ms", (media_id,))
         ]
     d["text"] = text
+    d["place"] = None
+    if r["city_id"] is not None:
+        pl = {int(p["id"]): p for p in c.db.q("SELECT * FROM places WHERE id IN (?, ?)", (r["city_id"], r["place_id"]))}
+        city, near = pl.get(int(r["city_id"])), pl.get(int(r["place_id"] or 0))
+        if city is not None:
+            d["place"] = {
+                "city_id": city["id"], "city": city["name"], "admin1": city["admin1"], "country": city["country"], "cc": city["cc"],
+                # the neighbourhood or village, where it isn't the city itself
+                "locality": near["name"] if near is not None and near["id"] != city["id"] else None,
+            }
     return d
 
 

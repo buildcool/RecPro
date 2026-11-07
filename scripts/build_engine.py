@@ -25,6 +25,7 @@ WORK = Path(os.environ.get("RECPRO_BUILD", ROOT / ".cache" / "pyinstaller"))
 # imported by name at run time (services, uvicorn's protocol and loop choice, watchdog's observer,
 # send2trash's platform module), so PyInstaller can't see them in the code
 COLLECT_SUBMODULES = ["recpro", "uvicorn", "watchdog", "send2trash", "websockets", "httptools"]
+COLLECT_DATA = ["recpro"]  # the offline place table (recpro/data/places.npz)
 COLLECT_ALL = ["pillow_heif", "faster_whisper", "ctranslate2"]  # libheif DLLs next to the module; the voice
 # detector model shipped inside faster-whisper; CTranslate2's own DLLs (MKL/oneDNN, cuDNN loader)
 COPY_METADATA = ["recpro-engine", "fastapi", "uvicorn", "pydantic", "starlette", "onnxruntime-gpu", "tokenizers", "faster-whisper", "ctranslate2",
@@ -43,6 +44,8 @@ def main() -> int:
             "--name", "recpro-engine", "--distpath", str(DIST), "--workpath", str(WORK / "work"), "--specpath", str(WORK)]
     for m in COLLECT_SUBMODULES:
         args += ["--collect-submodules", m]
+    for m in COLLECT_DATA:
+        args += ["--collect-data", m]
     for m in COLLECT_ALL:
         args += ["--collect-all", m]
     for m in COPY_METADATA:

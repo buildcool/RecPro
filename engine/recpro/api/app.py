@@ -61,6 +61,7 @@ def _optional_route_modules():
         "routes_labels",
         "routes_models",
         "routes_cleanup",
+        "routes_places",
     ]
     mods = []
     for n in names:

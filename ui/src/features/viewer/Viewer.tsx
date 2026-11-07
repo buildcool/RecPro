@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { ChevronLeft, ChevronRight, Copy, ExternalLink, FolderOpen, Info, Lock, MapPin, Maximize2, Minimize2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { ApiError, get, mediaUrl, post } from '../../lib/api';
 import { bridge } from '../../lib/bridge';
 import { bytes, clock, dateTime, duration } from '../../lib/format';
@@ -19,6 +20,7 @@ const SRC_LABEL: Record<string, string> = {
 
 export function Viewer() {
   const { open, ids, index, go, close, startAt } = useViewer();
+  const nav = useNavigate();
   const [info, setInfo] = useState(() => {
     try {
       return localStorage.getItem('recpro.viewer.info') !== '0';
@@ -150,8 +152,27 @@ export function Viewer() {
             action={bridge ? <button type="button" className="text-xs text-[#8fb1fb] hover:underline" onClick={() => bridge!.showInExplorer(d.path)}>Show in folder</button> : undefined}
           />
           {d.camera && <InfoRow label="Camera" value={d.camera} />}
-          {d.gps_lat != null && (
-            <InfoRow label="Place" value={`${d.gps_lat.toFixed(4)}, ${d.gps_lon?.toFixed(4)}`} icon={<MapPin className="size-3.5" />} />
+          {d.place ? (
+            <InfoRow
+              label="Place"
+              value={[d.place.locality, d.place.city, d.place.admin1 !== d.place.city ? d.place.admin1 : null, d.place.country].filter(Boolean).join(', ')}
+              hint={d.gps_lat != null ? `${d.gps_lat.toFixed(4)}, ${d.gps_lon?.toFixed(4)}` : undefined}
+              icon={<MapPin className="size-3.5 shrink-0" />}
+              action={
+                <button
+                  type="button"
+                  className="text-xs text-[#8fb1fb] hover:underline"
+                  onClick={() => {
+                    close();
+                    nav(`/places?city=${d.place!.city_id}`);
+                  }}
+                >
+                  On the map
+                </button>
+              }
+            />
+          ) : (
+            d.gps_lat != null && <InfoRow label="Place" value={`${d.gps_lat.toFixed(4)}, ${d.gps_lon?.toFixed(4)}`} icon={<MapPin className="size-3.5" />} />
           )}
           {d.faces.length > 0 && (
             <div className="mt-5">

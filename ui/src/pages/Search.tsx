@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Calendar, Film, FolderOpen, Lock, Search as SearchIcon, Smile, Tag, UserRound, Users, X } from 'lucide-react';
+import { Calendar, Film, FolderOpen, Lock, MapPin, Search as SearchIcon, Smile, Tag, UserRound, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { Badge, EmptyState, Spinner, TextInput } from '../components/ui';
@@ -20,6 +20,7 @@ type Parsed = {
   size: [number, number] | null;
   labels: { id: number; name: string }[];
   folders: { id: number; name: string }[];
+  places?: { name: string; ids: number[] }[];
   text: string;
 };
 type Result = { parsed: Parsed; sure: MediaItem[]; check: MediaItem[]; hidden_private: number; refused?: string; took_ms: number };
@@ -63,6 +64,9 @@ export function SearchPage() {
     if (p.emotion) out.push({ key: 'emo', icon: <Smile className="size-3.5" />, label: p.emotion, remove: { emotion: null } });
     p.labels.forEach((l) => out.push({ key: `l${l.id}`, icon: <Tag className="size-3.5" />, label: l.name, remove: { labels: [] } }));
     p.folders.forEach((f) => out.push({ key: `f${f.id}`, icon: <FolderOpen className="size-3.5" />, label: f.name, remove: { folders: [] } }));
+    (p.places ?? []).forEach((pl, i) =>
+      out.push({ key: `pl${i}`, icon: <MapPin className="size-3.5" />, label: pl.name, remove: { places: (p.places ?? []).filter((_, j) => j !== i) } }),
+    );
     if (p.text && !p.labels.length) out.push({ key: 'text', icon: <SearchIcon className="size-3.5" />, label: `“${p.text}”`, remove: { text: '' } });
     return out;
   }, [data]);

@@ -46,13 +46,13 @@ export const useLive = create<LiveState>(() => ({
 type Msg = { type: string; data: unknown };
 
 const INVALIDATE: Record<string, string[][]> = {
-  'library.changed': [['folders'], ['media'], ['timeline'], ['stats'], ['cleanup']],
-  'media.updated': [['media'], ['stats'], ['timeline']],
+  'library.changed': [['folders'], ['media'], ['timeline'], ['stats'], ['cleanup'], ['places']],
+  'media.updated': [['media'], ['stats'], ['timeline'], ['places']],
   'people.changed': [['people'], ['person'], ['review'], ['stats']],
   'labels.changed': [['labels'], ['explore'], ['review'], ['stats']],
   'ops.changed': [['ops'], ['bin'], ['cleanup']],
   'review.changed': [['review'], ['people'], ['person']],
-  'private.changed': [['private'], ['media'], ['timeline'], ['people'], ['explore'], ['stats'], ['cleanup']],
+  'private.changed': [['private'], ['media'], ['timeline'], ['people'], ['explore'], ['stats'], ['cleanup'], ['places']],
   settings: [['settings']],
   'models.changed': [['models'], ['health']],
 };

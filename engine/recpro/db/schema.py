@@ -241,4 +241,23 @@ MIGRATIONS: list[str] = [
     ALTER TABLE media ADD COLUMN highlights REAL;
     ALTER TABLE media ADD COLUMN sharpness REAL;
     """,
+    # v8 — places: the town (and the city it belongs to) of each photo with GPS, named offline
+    """
+    CREATE TABLE places(
+      id INTEGER PRIMARY KEY,  -- GeoNames id
+      name TEXT NOT NULL,
+      admin1 TEXT,
+      country TEXT NOT NULL,
+      cc TEXT NOT NULL,
+      lat REAL NOT NULL,
+      lon REAL NOT NULL,
+      pop INTEGER NOT NULL DEFAULT 0
+    );
+    ALTER TABLE media ADD COLUMN place_v INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE media ADD COLUMN place_id INTEGER;
+    ALTER TABLE media ADD COLUMN city_id INTEGER;
+    ALTER TABLE media ADD COLUMN place_km REAL;
+    CREATE INDEX media_city ON media(city_id) WHERE city_id IS NOT NULL;
+    CREATE INDEX media_place ON media(place_id) WHERE place_id IS NOT NULL;
+    """,
 ]

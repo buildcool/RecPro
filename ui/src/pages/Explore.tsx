@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Compass, Plus, Sparkles } from 'lucide-react';
+import { ArrowRight, Compass, MapPin, Plus, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { Button, EmptyState, Field, Modal, PageHeader, TextInput } from '../components/ui';
 import { ModelSetupCard } from '../features/models/ModelSetup';
+import type { PlacesResult } from '../features/places/places';
 import { get, mediaUrl, post } from '../lib/api';
 import { num } from '../lib/format';
 
@@ -28,6 +29,7 @@ export function ExplorePage() {
       />
       <div className="space-y-8 px-6 pb-12">
         <ModelSetupCard need="siglip2" />
+        <PlacesRow />
         {empty && (
           <EmptyState
             icon={<Compass className="size-6" />}
@@ -74,6 +76,44 @@ export function ExplorePage() {
       </div>
       <CreateCategory open={creating} onClose={() => setCreating(false)} />
     </div>
+  );
+}
+
+/** The towns with the most photos, and the way to the map. Hidden until a photo has a place. */
+function PlacesRow() {
+  const { data } = useQuery({ queryKey: ['places', 'list'], queryFn: () => get<PlacesResult>('/api/places') });
+  if (!data?.places.length) return null;
+  return (
+    <section>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-[15px] font-semibold">Places</h2>
+        <Link to="/places" className="flex items-center gap-1 text-[13px] text-accent-text hover:underline">
+          See the map <ArrowRight className="size-3.5" />
+        </Link>
+      </div>
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
+        {data.places.slice(0, 6).map((p) => (
+          <Link key={p.id} to={`/places?city=${p.id}`} className="group overflow-hidden rounded-2xl border border-line bg-surface transition-colors hover:border-line-strong">
+            <div className="aspect-[4/3] overflow-hidden bg-thumb">
+              {p.cover ? (
+                <img src={mediaUrl(`media/thumb/${p.cover}?v=${p.cover_v ?? 1}`)} alt="" loading="lazy" className="size-full object-cover transition-transform duration-300 group-hover:scale-105" />
+              ) : (
+                <div className="flex size-full items-center justify-center text-fg-3">
+                  <MapPin className="size-6" />
+                </div>
+              )}
+            </div>
+            <div className="px-3 py-2">
+              <div className="truncate text-sm font-semibold">{p.name}</div>
+              <div className="truncate text-xs text-fg-3">
+                {num(p.n)} · {p.admin1 && p.admin1 !== p.name ? `${p.admin1}, ` : ''}
+                {p.country}
+              </div>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }
 

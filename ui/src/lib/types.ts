@@ -67,6 +67,8 @@ export type MediaDetail = {
   camera: string | null;
   gps_lat: number | null;
   gps_lon: number | null;
+  // named on this PC from the GPS position: the town and, where it differs, the neighbourhood or village
+  place?: { city_id: number; city: string; admin1: string | null; country: string; cc: string; locality: string | null } | null;
   state: string;
   sens_state: string;
   faces: FaceBox[];

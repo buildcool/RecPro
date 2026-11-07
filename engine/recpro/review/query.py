@@ -2,6 +2,7 @@
 and sends whatever is left to SigLIP 2 as a description ("laptop on a sofa")."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -40,13 +41,17 @@ STOP = {"with", "and", "of", "the", "a", "an", "in", "at", "on", "from", "my", "
 # Words split on spaces and punctuation, not on \w: Python's \w skips the vowel signs of Hindi,
 # Marathi and other Indic scripts, which cut "नमस्ते" into "नमस" + "त".
 WORD_RE = re.compile(r"[^\s,.;:!?()\[\]{}\"“”&/+|]+")
+# search words that are also the name of a town somewhere ("May"): never taken as a place
+PLACE_SKIP = frozenset(STOP | set(MONTHS) | set(KIND_WORDS) | set(AGE_WORDS) | set(GENDER_WORDS) | set(EMOTION_WORDS) | set(SIZE_WORDS))
+# with a place named, these say nothing more: "Goa trip" is the photos taken in Goa
+TRIP_WORDS = {"trip", "trips", "tour", "travel", "travels", "vacation", "vacations", "holiday", "holidays", "visit", "journey"}
 SENSITIVE_WORDS = {"nude", "nudes", "naked", "nudity", "sexy", "sex", "sexual", "porn", "lingerie", "bikini", "romance", "romantic", "kissing", "kiss", "intimate", "private"}
 
 
 def parse(c: Context, q: str) -> dict[str, Any]:
     text = " " + q.strip() + " "
     out: dict[str, Any] = {"people": [], "years": [], "months": [], "kind": None, "age": None, "gender": None,
-                           "emotion": None, "size": None, "labels": [], "folders": [], "text": "", "sensitive": False}
+                           "emotion": None, "size": None, "labels": [], "folders": [], "places": [], "text": "", "sensitive": False}
     low = text.lower()
     # people: longest names first
     named = sorted(c.db.q("SELECT id, name FROM people WHERE name IS NOT NULL AND hidden=0"), key=lambda r: -len(r["name"]))
@@ -61,6 +66,9 @@ def parse(c: Context, q: str) -> dict[str, Any]:
         if len(base) >= 3 and re.search(r"(?<![\w])" + re.escape(base) + r"(?![\w])", low):
             out["folders"].append({"id": f["id"], "name": os.path.basename(f["path"].rstrip("\\/"))})
             low = low.replace(base, " ")
+    # places where there are photos: a town, a state or a country ("Goa", "Pune", "France"),
+    # matched without accents or case
+    low = _match_places(c, low, out["places"])
     # years and relative years
     now = datetime.now()
     for y in re.findall(r"(?<!\d)(19[5-9]\d|20[0-4]\d)(?!\d)", low):
@@ -90,7 +98,7 @@ def parse(c: Context, q: str) -> dict[str, Any]:
             out["emotion"] = EMOTION_WORDS[w]  # checked on the faces, not in the description
         elif w in SIZE_WORDS:
             out["size"] = SIZE_WORDS[w]
-        elif w in STOP:
+        elif w in STOP or (out["places"] and w in TRIP_WORDS):
             continue
         else:
             if w in SENSITIVE_WORDS:
@@ -103,6 +111,46 @@ def parse(c: Context, q: str) -> dict[str, Any]:
         if lab is not None:
             out["labels"].append({"id": lab["id"], "name": lab["name"], "grp": lab["grp"]})
     return out
+
+
+def library_places(c: Context) -> list[tuple[str, str, list[int]]]:
+    """(folded name, name as shown, the place ids it covers) for every town, state and country
+    with photos, longest names first. A state covers all its towns; a town is a city or a locality."""
+    from ..library.places import fold
+
+    rows = c.db.q(
+        """SELECT p.id, p.name, p.admin1, p.country FROM places p
+           WHERE p.id IN (SELECT city_id FROM media WHERE city_id IS NOT NULL)
+              OR p.id IN (SELECT place_id FROM media WHERE place_id IS NOT NULL)"""
+    )
+    by: dict[str, tuple[str, set[int]]] = {}
+    for r in rows:
+        for name in (r["name"], r["admin1"], r["country"]):
+            if name and len(name) >= 3:
+                k = fold(name)
+                by.setdefault(k, (name, set()))[1].add(int(r["id"]))
+    return sorted(((k, v[0], sorted(v[1])) for k, v in by.items()), key=lambda x: -len(x[0]))
+
+
+def _match_places(c: Context, low: str, found: list[dict[str, Any]]) -> str:
+    """Finds place names in the query and takes them out of it. Matched on a copy without accents
+    (only the copy: folding would also strip the virama from Hindi words)."""
+    from ..library.places import fold
+
+    if c.db.scalar("SELECT 1 FROM media WHERE city_id IS NOT NULL LIMIT 1") is None:
+        return low
+    plain = fold(low)
+    for key, name, ids in library_places(c):
+        if key in PLACE_SKIP:
+            continue
+        pat = re.compile(r"(?<![\w])" + re.escape(key) + r"(?![\w])")
+        if not pat.search(plain):
+            continue
+        found.append({"name": name, "ids": ids})
+        plain = pat.sub(" ", plain)
+        for form in {key, name.lower()}:
+            low = re.sub(r"(?<![\w])" + re.escape(form) + r"(?![\w])", " ", low)
+    return low
 
 
 def run(c: Context, q: str, overrides: dict[str, Any] | None = None, limit: int = 2000) -> dict[str, Any]:
@@ -126,6 +174,10 @@ def run(c: Context, q: str, overrides: dict[str, Any] | None = None, limit: int 
     if p["folders"]:
         where.append(f"m.folder_id IN ({','.join('?' * len(p['folders']))})")
         params += [f["id"] for f in p["folders"]]
+    if p.get("places"):  # any of the places named
+        ids = json.dumps(sorted({i for pl in p["places"] for i in pl["ids"]}))
+        where.append("(m.city_id IN (SELECT value FROM json_each(?)) OR m.place_id IN (SELECT value FROM json_each(?)))")
+        params += [ids, ids]
     if p["years"]:
         where.append(f"CAST(strftime('%Y', m.taken_at, 'unixepoch', 'localtime') AS INTEGER) IN ({','.join('?' * len(p['years']))})")
         params += p["years"]

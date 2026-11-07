@@ -49,6 +49,7 @@ class Indexer:
     # ---- control ------------------------------------------------------------
     def start(self) -> None:
         from .deep import DeepStage
+        from .places import PlacesStage
         from .quality import QualityStage
         from .quick import QuickStage
         from .semantic import SemanticStage
@@ -61,7 +62,7 @@ class Indexer:
         # anything is shown unblurred, then faces, understanding, reading text, whole videos, and
         # last (slowest) what is said in them.
         defaults = [QuickStage(self.ctx), SensStage(self.ctx), DeepStage(self.ctx), SemanticStage(self.ctx), TextStage(self.ctx),
-                    QualityStage(self.ctx), VideoStage(self.ctx), SpeechStage(self.ctx)]
+                    QualityStage(self.ctx), PlacesStage(self.ctx), VideoStage(self.ctx), SpeechStage(self.ctx)]
         names = {s.name for s in self.stages}
         for st in reversed(defaults):
             if st.name not in names:
