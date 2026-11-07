@@ -46,14 +46,14 @@ export const useLive = create<LiveState>(() => ({
 type Msg = { type: string; data: unknown };
 
 const INVALIDATE: Record<string, string[][]> = {
-  'library.changed': [['folders'], ['media'], ['timeline'], ['stats'], ['cleanup'], ['places']],
-  'media.updated': [['media'], ['stats'], ['timeline'], ['places']],
+  'library.changed': [['folders'], ['media'], ['timeline'], ['stats'], ['cleanup'], ['places'], ['memories']],
+  'media.updated': [['media'], ['stats'], ['timeline'], ['places'], ['memories']],
   'people.changed': [['people'], ['person'], ['review'], ['stats']],
-  'labels.changed': [['labels'], ['explore'], ['review'], ['stats']],
+  'labels.changed': [['labels'], ['explore'], ['review'], ['stats'], ['memories']],
   'ops.changed': [['ops'], ['bin'], ['cleanup']],
   'review.changed': [['review'], ['people'], ['person']],
-  'private.changed': [['private'], ['media'], ['timeline'], ['people'], ['explore'], ['stats'], ['cleanup'], ['places']],
-  settings: [['settings']],
+  'private.changed': [['private'], ['media'], ['timeline'], ['people'], ['explore'], ['stats'], ['cleanup'], ['places'], ['memories']],
+  settings: [['settings'], ['memories']],
   'models.changed': [['models'], ['health']],
 };
 

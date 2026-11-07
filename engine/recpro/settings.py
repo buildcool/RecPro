@@ -26,6 +26,7 @@ DEFAULTS: dict[str, Any] = {
     "ops.conflict_default": "rename",  # rename | skip
     "ocr.languages": ["en", "hi"],
     "models.profile": "best",  # best | fast
+    "places.home_city_id": None,  # home for trips; None: the town with photos on the most days
 }
 
 

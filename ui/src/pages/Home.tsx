@@ -5,12 +5,15 @@ import { toast } from 'sonner';
 import { Badge, Button, Card, Progress, SectionTitle } from '../components/ui';
 import { addFoldersFlow } from '../features/library/addFolders';
 import { ModelSetupCard } from '../features/models/ModelSetup';
+import { useViewer } from '../features/viewer/viewerStore';
 import { get, mediaUrl, post } from '../lib/api';
-import { bytes, eta, num, timeAgo } from '../lib/format';
+import { bytes, dateLong, eta, num, timeAgo } from '../lib/format';
 import { useLive } from '../lib/live';
 import { type CleanupSummary, useCleanupSummary, useFolders, useOps, useStats } from '../lib/queries';
+import type { MediaItem } from '../lib/types';
 
 type PersonLite = { id: number; name: string | null; count: number; cover_face_id: number | null };
+type OnThisDayResult = { date: string; years: { year: number; years_ago: number; n: number; items: MediaItem[] }[] };
 
 export function HomePage() {
   const { data: stats } = useStats();
@@ -68,6 +71,8 @@ export function HomePage() {
         </Card>
 
         <ModelSetupCard need="faces" />
+
+        <OnThisDay />
 
         {/* Numbers */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -201,6 +206,52 @@ export function HomePage() {
         )}
       </div>
     </div>
+  );
+}
+
+/** Photos from today's date in earlier years. Hidden on days with none. */
+function OnThisDay() {
+  const today = new Date().toDateString(); // asked again when the day changes
+  const { data } = useQuery({
+    queryKey: ['memories', 'on-this-day', today],
+    queryFn: () => get<OnThisDayResult>('/api/memories/on-this-day'),
+    staleTime: 60 * 60_000,
+    retry: false,
+  });
+  if (!data?.years.length) return null;
+  return (
+    <Card className="p-5">
+      <SectionTitle>On this day</SectionTitle>
+      <div className="space-y-4">
+        {data.years.map((y) => (
+          <div key={y.year}>
+            <div className="mb-2 text-[13px]">
+              <span className="font-semibold">{y.years_ago === 1 ? 'A year ago' : `${y.years_ago} years ago`}</span>
+              <span className="text-fg-3">
+                {' '}
+                · {dateLong(y.items[0]?.t)} · {num(y.n)}
+              </span>
+            </div>
+            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+              {y.items.slice(0, 14).map((it, i) => (
+                <button
+                  key={it.id}
+                  type="button"
+                  onClick={() => useViewer.getState().show(y.items.map((x) => x.id), i)}
+                  className="relative size-24 shrink-0 overflow-hidden rounded-xl bg-thumb outline-offset-2 hover:opacity-90"
+                  aria-label={`Open photo ${i + 1} of ${y.n} from ${y.year}`}
+                >
+                  <img src={mediaUrl(`media/thumb/${it.id}?v=${it.v}`)} alt="" loading="lazy" className="size-full object-cover" />
+                  {i === 13 && y.n > 14 && (
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-sm font-semibold text-white">+{num(y.n - 13)}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 

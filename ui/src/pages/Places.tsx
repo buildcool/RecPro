@@ -1,12 +1,13 @@
-import { useQuery } from '@tanstack/react-query';
-import { MapPin } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { House, Luggage, MapPin } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { Button, EmptyState, PageHeader } from '../components/ui';
 import { FlatGrid } from '../features/grid/FlatGrid';
+import { useMemories } from '../features/memories/memories';
 import { type PlaceRow, type PlacesResult, placeName } from '../features/places/places';
 import { type Bounds, type MapView, WorldMap } from '../features/places/WorldMap';
-import { get, mediaUrl } from '../lib/api';
+import { get, mediaUrl, patch } from '../lib/api';
 import { num } from '../lib/format';
 import type { MediaItem } from '../lib/types';
 
@@ -18,6 +19,45 @@ const yearSpan = (a: number | null, b: number | null) => {
   const y1 = new Date(b * 1000).getFullYear();
   return y0 === y1 ? String(y0) : `${y0}–${y1}`;
 };
+
+/** Home decides what counts as a trip: worked out from the photos unless you pick it. */
+function HomeChooser({ places }: { places: PlaceRow[] }) {
+  const { data } = useMemories();
+  const qc = useQueryClient();
+  const home = data?.home;
+  if (!home) return null;
+  const choose = async (v: string) => {
+    await patch('/api/settings', { 'places.home_city_id': v ? Number(v) : null });
+    qc.invalidateQueries({ queryKey: ['memories'] });
+    qc.invalidateQueries({ queryKey: ['settings'] });
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] text-fg-2">
+      <label className="flex items-center gap-2">
+        <House className="size-4 text-fg-3" />
+        Home
+        <select
+          value={home.chosen ? String(home.id) : ''}
+          onChange={(e) => void choose(e.target.value)}
+          className="h-8 max-w-[260px] rounded-lg border border-line-strong bg-surface px-2 text-[13px] text-fg focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+        >
+          <option value="">{home.chosen ? 'Work it out from my photos' : `${home.name} (from your photos)`}</option>
+          {places.map((p) => (
+            <option key={p.id} value={p.id}>
+              {placeName(p)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="text-fg-3">Trips are the days 50 km or more from home.</span>
+      {(data.trips.length > 0 || data.events.length > 0) && (
+        <Link to="/memories" className="flex items-center gap-1 text-accent-text hover:underline">
+          <Luggage className="size-3.5" /> {num(data.trips.length)} {data.trips.length === 1 ? 'trip' : 'trips'}
+        </Link>
+      )}
+    </div>
+  );
+}
 
 function boundsOf(ps: PlaceRow[]): Bounds {
   return [Math.min(...ps.map((p) => p.lat)), Math.min(...ps.map((p) => p.lon)), Math.max(...ps.map((p) => p.lat)), Math.max(...ps.map((p) => p.lon))];
@@ -86,6 +126,7 @@ export function PlacesPage() {
         }
       />
       <div className="space-y-5 px-6 pb-12">
+        <HomeChooser places={places} />
         <div className="h-[min(52vh,520px)] min-h-[280px]">
           <WorldMap focus={focus} onView={setView} />
         </div>

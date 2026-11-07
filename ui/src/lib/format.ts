@@ -36,6 +36,17 @@ const dfLong = new Intl.DateTimeFormat(undefined, { dateStyle: 'long' });
 const dfMonth = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
 const dfFull = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
+const dfDay = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+const dfWeekday = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+
+/** "Jan 14 – 17, 2023", written the way the PC's language writes ranges. */
+export const dateRange = (a: number, b: number) => dfDay.formatRange(new Date(a * 1000), new Date(b * 1000));
+/** "Saturday, January 14" for an ISO day (2023-01-14), read as a local date. */
+export const weekday = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return dfWeekday.format(new Date(y, m - 1, d));
+};
+
 export const dateLong = (ts: number | null | undefined) => (ts ? dfLong.format(new Date(ts * 1000)) : 'Unknown date');
 export const monthYear = (ts: number | null | undefined) => (ts ? dfMonth.format(new Date(ts * 1000)) : 'Unknown date');
 export const dateTime = (ts: number | null | undefined) => (ts ? dfFull.format(new Date(ts * 1000)) : '–');

@@ -7,7 +7,8 @@ way a phone keeps them, so places and trips have to come from the photos, not fr
   home in Pune on ordinary days over 18 months (one at Sinhagad fort, 25 km out: a day out, not a trip)
   Goa, 4 days in Jan 2023 · Jaipur, Oct 2023 · Paris and Versailles, Jun 2024 · a Lonavala weekend, Jul 2024
 Odd/ has a position of 0,0 (what some cameras write when they have none) and one far out at sea:
-neither gets a place. LFW photos already in the third folder are left out so nothing is a duplicate.
+neither gets a place. Two photos at home fall on today's date, one and three years back, for "On
+this day". LFW photos already in the third folder are left out so nothing is a duplicate.
 truth.json records the town each photo should be in and the trips.
 """
 import io
@@ -15,6 +16,7 @@ import json
 import shutil
 import sys
 import tarfile
+from datetime import date
 from pathlib import Path
 
 from PIL import Image
@@ -63,6 +65,11 @@ TRIPS = {
     ],
 }
 ODD = [("2024:08:01 12:00:00", 0.0, 0.0, None), ("2024:08:02 12:00:00", 14.0, 65.0, None)]
+# for "On this day": two evenings at home on today's date, one and three years back
+for back in (1, 3):
+    t = date.today()
+    d = t.replace(year=t.year - back, day=28) if (t.month, t.day) == (2, 29) else t.replace(year=t.year - back)
+    HOME.append((f"{d:%Y:%m:%d} 17:30:00", 18.5308, 73.8475, "Pune"))
 PEOPLE = ["Laura_Bush", "Vladimir_Putin", "Serena_Williams", "Jacques_Chirac", "Arnold_Schwarzenegger", "Kofi_Annan",
           "Luiz_Inacio_Lula_da_Silva", "Andre_Agassi", "Silvio_Berlusconi", "Nancy_Pelosi", "Tom_Ridge", "Lleyton_Hewitt"]
 

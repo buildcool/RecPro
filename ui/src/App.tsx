@@ -16,6 +16,8 @@ const Photos = lazyPage('PhotosPage', () => import('./pages/Photos'));
 const HistoryPage = lazyPage('HistoryPage', () => import('./pages/History'));
 const CleanupPage = lazyPage('CleanupPage', () => import('./pages/Cleanup'));
 const PlacesPage = lazyPage('PlacesPage', () => import('./pages/Places'));
+const MemoriesPage = lazyPage('MemoriesPage', () => import('./pages/Memories'));
+const MemoryPage = lazyPage('MemoryPage', () => import('./pages/Memories'));
 const PeoplePage = lazyPage('PeoplePage', () => import('./pages/People'));
 const PersonPage = lazyPage('PersonPage', () => import('./pages/Person'));
 const ReviewPage = lazyPage('ReviewPage', () => import('./pages/Review'));
@@ -82,6 +84,8 @@ const router = createHashRouter([
           { path: '/folders', element: <Page><Folders /></Page> },
           { path: '/cleanup', element: <Page><CleanupPage /></Page> },
           { path: '/places', element: <Page><PlacesPage /></Page> },
+          { path: '/memories', element: <Page><MemoriesPage /></Page> },
+          { path: '/memories/:key', element: <Page><MemoryPage /></Page> },
           { path: '/history', element: <Page><HistoryPage /></Page> },
           { path: '/settings', element: <Page><Settings /></Page> },
           { path: '*', element: <Navigate to="/" replace /> },
