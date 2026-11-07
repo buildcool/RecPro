@@ -79,6 +79,8 @@ Models are listed in a manifest with their purpose, license and profiles (*best*
 
 `ml/runtime.py` creates ONNX Runtime sessions on CUDA (cuDNN 9, CUDA libraries installed as Python packages and preloaded) with CPU fallback.
 
+**Memory.** Measured on an RTX 4070 laptop (8 GB): re-reading 767 photos through the private check, faces and SigLIP took 151 s, with the engine at about 4.9 GB of graphics memory and 3.5 GB of RAM at its peak (2.3 GB idle, most of it SigLIP's text tower, which stays on the processor for searches). `ml/service.py` lets a model go after five minutes unused (`RECPRO_IDLE_RELEASE_S`), so the graphics memory goes back to games and other apps; it loads again in a second or two when needed. SigLIP lets only its image tower go.
+
 ## Faces and people (`ml/faces.py`, `review/`)
 
 **Pipeline (deep pass).** Each photo is decoded once at up to 2048 px. SCRFD-10G detects faces at 640 px and, for larger photos, at 1280 px for small faces in group shots; detections are merged with NMS and kept down to a 0.40 score, so weak faces are asked about instead of dropped. Each face is aligned from its 5 landmarks (Umeyama similarity transform) and embedded with ArcFace R100 (antelopev2 `glintr100`), averaging the face and its mirror image. Age/gender come from `genderage.onnx`, and a quality score combines size, detector confidence, pose (yaw/roll from landmarks) and sharpness (Laplacian variance). When a photo is analyzed again, confirmed answers move to the re-detected face at the same spot.
