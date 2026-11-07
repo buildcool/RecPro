@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import string
 import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -25,7 +26,10 @@ class Siglip:
         folder = Path(folder)
         self.scale = float(np.exp(logit_scale))
         self.bias = float(logit_bias)
-        self.visual = session(folder / "visual" / "model.onnx", use_gpu)
+        self._vpath, self._use_gpu = folder / "visual" / "model.onnx", use_gpu
+        self._visual = session(self._vpath, use_gpu)
+        self._vlock = threading.Lock()
+        self._vused = time.monotonic()
         # The text tower (≈1.7 GB, mostly a 256k-token embedding) stays on the CPU: it only encodes
         # search queries and category prompts (cached), and keeping it off the GPU avoids
         # overflowing 8 GB of VRAM into slow shared memory.
@@ -55,6 +59,24 @@ class Siglip:
             self._disk = {}
 
     # ---- images ----------------------------------------------------------------------
+    @property
+    def visual(self):
+        """The image tower, on the graphics card; loaded again if it was let go while idle."""
+        with self._vlock:
+            if self._visual is None:
+                self._visual = session(self._vpath, self._use_gpu)
+            self._vused = time.monotonic()
+            return self._visual
+
+    def release_gpu(self, idle_s: float) -> bool:
+        """Lets the image tower go after idle_s seconds unused, giving its graphics memory back.
+        The text tower stays: it runs on the processor and every search needs it."""
+        with self._vlock:
+            if self._visual is None or time.monotonic() - self._vused < idle_s:
+                return False
+            self._visual = None
+            return True
+
     def preprocess(self, img: np.ndarray) -> np.ndarray:
         x = cv2.resize(img, (self.size, self.size), interpolation=cv2.INTER_CUBIC)  # "squash", like training
         return ((x.astype(np.float32) / 255.0 - 0.5) / 0.5).transpose(2, 0, 1)

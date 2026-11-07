@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import gc
 import logging
+import os
 import threading
+import time
 from typing import Any
 
 from ..context import Context
@@ -9,6 +12,10 @@ from . import runtime
 from .models import ModelManager
 
 log = logging.getLogger("recpro.ml")
+
+# Models unused this long give their memory back (graphics memory above all: games and other apps
+# want it) and load again when needed, in a second or two. RECPRO_IDLE_RELEASE_S overrides it.
+IDLE_S = float(os.environ.get("RECPRO_IDLE_RELEASE_S", "300"))
 
 
 class ML:
@@ -19,14 +26,48 @@ class ML:
         self.models = ModelManager(ctx.paths.models, ctx.events, lambda: bool(ctx.settings.get("privacy.strict_offline")))
         self._lock = threading.Lock()
         self._engines: dict[str, Any] = {}
+        self._used: dict[str, float] = {}  # engine -> when it was last handed out
+        self._stop = threading.Event()
         self.models.on_installed.append(self._on_installed)
         runtime.set_gpu_pack(self.models.path("gpu"))
 
     def start(self) -> None:
         self.models.start()
+        threading.Thread(target=self._reap, name="ml-idle", daemon=True).start()
 
     def stop(self) -> None:
+        self._stop.set()
         self.models.stop()
+
+    def _reap(self) -> None:
+        while not self._stop.wait(min(60.0, max(1.0, IDLE_S / 5))):
+            try:
+                self.release_idle()
+            except Exception:
+                log.exception("couldn't release idle models")
+
+    def release_idle(self, idle_s: float = IDLE_S) -> list[str]:
+        """Lets go of models unused for idle_s seconds. SigLIP keeps its text tower for searches."""
+        now = time.monotonic()
+        freed: list[str] = []
+        with self._lock:
+            for key in list(self._engines):
+                eng = self._engines[key]
+                if hasattr(eng, "release_gpu"):
+                    if eng.release_gpu(idle_s):
+                        freed.append(f"{key} (image tower)")
+                elif now - self._used.get(key, now) >= idle_s:
+                    del self._engines[key]
+                    self._used.pop(key, None)
+                    freed.append(key)
+        if freed:
+            gc.collect()  # the sessions go now, and with them their memory
+            log.info("released after %.0f s idle: %s", idle_s, ", ".join(freed))
+        return freed
+
+    def _hand_out(self, key: str, eng: Any) -> Any:
+        self._used[key] = time.monotonic()
+        return eng
 
     @property
     def use_gpu(self) -> bool:
@@ -49,7 +90,7 @@ class ML:
 
                 fa = FaceAnalyzer(self.models.path("faces"), use_gpu=self.use_gpu)
                 self._engines["faces"] = fa
-            return fa
+            return self._hand_out("faces", fa)
 
     def nsfw(self):
         if not self.has("nudenet"):
@@ -61,7 +102,7 @@ class ML:
 
                 d = NudeDetector(self.models.path("nudenet") / "640m.onnx", use_gpu=self.use_gpu)
                 self._engines["nudenet"] = d
-            return d
+            return self._hand_out("nudenet", d)
 
     def emotion(self):
         if not self.has("emotion"):
@@ -73,7 +114,7 @@ class ML:
 
                 m = EmotionModel(self.models.path("emotion") / "enet_b2_8.onnx", use_gpu=self.use_gpu)
                 self._engines["emotion"] = m
-            return m
+            return self._hand_out("emotion", m)
 
     def ocr(self):
         if not self.has("ocr"):
@@ -90,7 +131,7 @@ class ML:
                     del self._engines[k]
                 m = OCR(self.models.path("ocr"), use_gpu=self.use_gpu, languages=langs)
                 self._engines[key] = m
-            return m
+            return self._hand_out(key, m)
 
     def speech_id(self) -> str | None:
         """Which speech model to use: the profile's choice if installed, else whichever is."""
@@ -111,7 +152,7 @@ class ML:
 
                 m = Transcriber(self.models.path(mid), use_gpu=self.use_gpu)
                 self._engines[mid] = m
-            return m
+            return self._hand_out(mid, m)
 
     def semantic_id(self) -> str | None:
         """Which SigLIP model to use: the profile's choice if installed, else whichever is."""
@@ -134,7 +175,7 @@ class ML:
                 p = spec(mid).params
                 s = Siglip(self.models.path(mid), use_gpu=self.use_gpu, logit_scale=p["logit_scale"], logit_bias=p["logit_bias"])
                 self._engines[mid] = s
-            return s
+            return self._hand_out(mid, s)
 
     def _on_installed(self, model_id: str) -> None:
         with self._lock:
