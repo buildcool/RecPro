@@ -62,3 +62,7 @@ All notable changes to RecPro. Versions follow [Semantic Versioning](https://sem
 - Documents, chats and bills no longer fill photo categories (a chat about a party as *Party*, a white ID card as *Snow*, a laptop repair invoice as *Laptop*): categories have "it's text" alternatives now.
 - Search keeps Hindi, Marathi and other Indic words whole; their vowel signs used to split them.
 - Private items keep nothing readable: words read in them and speech in them are deleted when they become private and aren't read while private.
+
+### Security
+- Electron 41.10.7 (from 41.7.1): sandboxed windows and popups keep their restrictions, file and HTTP protocol handlers no longer allow cross-origin reads, and a `<webview>` can't enable Node.js in its workers. Advisories fixed only in Electron 42 remain: distrust of compromised eMudhra intermediate certificates, and permission prompts that can be attributed to the wrong origin or frame.
+- The map's d3 packages are pinned to their 2021-2024 releases: new versions of all of them were published together in November 2026, after years without one.

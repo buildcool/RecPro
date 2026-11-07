@@ -3,7 +3,7 @@
 ## Requirements
 
 - Windows 10/11 (macOS/Linux work for the engine and UI, but the shell targets Windows)
-- Node.js 20.19+ and npm
+- Node.js 22.12+ and npm (Electron's install tooling needs it; CI uses Node 22)
 - [uv](https://docs.astral.sh/uv/) 0.5+ (it provisions Python 3.12)
 - ffmpeg and ffprobe on `PATH`
 - Optional: NVIDIA GPU with a recent driver (CUDA 12 runtime libraries are installed as Python packages)
@@ -116,6 +116,14 @@ This project keeps every download off C:. Before installing Python packages, poi
 ```bash
 export UV_CACHE_DIR='D:\Claude\github\RecPro\.cache\uv' TEMP='D:\Claude\github\RecPro\.cache\tmp' TMP='D:\Claude\github\RecPro\.cache\tmp'
 ```
+
+`npm install` also downloads Electron itself (about 140 MB, checked against the checksums in the `electron` package). Keep it in the repository's cache too:
+
+```bash
+export electron_config_cache='D:\Claude\github\RecPro\.cache\electron'
+```
+
+If that download fails on a slow connection, fetch the zip with curl into the folder the installer looks in (`<cache>\<sha256 of the release URL's folder>\electron-vX.Y.Z-win32-x64.zip`), check its SHA-256 against `node_modules/electron/checksums.json`, and run `npm install` again: it uses the cached file.
 
 AI models download into the engine's data folder (`.devdata\models` in development), never to a user cache.
 
