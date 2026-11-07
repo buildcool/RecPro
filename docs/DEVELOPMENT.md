@@ -111,19 +111,21 @@ The map's country outlines come from the `world-atlas` npm package (Natural Eart
 
 ### Keep downloads and caches on D:
 
-This project keeps every download off C:. Before installing Python packages, point uv's cache and temp folders into the repository (npm already uses `.cache/npm` through the project `.npmrc`):
+This project keeps every download off C:. Before installing Python packages, point uv's cache, its own Python installs and the temp folders into the repository (npm already uses `.cache/npm` through the project `.npmrc`):
 
 ```bash
-export UV_CACHE_DIR='D:\Claude\github\RecPro\.cache\uv' TEMP='D:\Claude\github\RecPro\.cache\tmp' TMP='D:\Claude\github\RecPro\.cache\tmp'
+export UV_CACHE_DIR='D:\Claude\github\RecPro\.cache\uv' UV_PYTHON_INSTALL_DIR='D:\Claude\github\RecPro\.cache\uv-python' UV_PYTHON_INSTALL_BIN=0 TEMP='D:\Claude\github\RecPro\.cache\tmp' TMP='D:\Claude\github\RecPro\.cache\tmp'
 ```
 
-`npm install` also downloads Electron itself (about 140 MB, checked against the checksums in the `electron` package). Keep it in the repository's cache too:
+`UV_PYTHON_INSTALL_DIR` puts the Python that uv downloads (3.12) on D: too, and `UV_PYTHON_INSTALL_BIN=0` stops it adding `python3.12.exe` to `%USERPROFILE%\.local\bin`. An `engine/.venv` made before should be made again so it uses that Python: delete it, then `uv sync`.
+
+Electron fetches its own program (about 150 MB, checked against the checksums in the `electron` package) the first time something starts it, such as `npm run dev` (Electron 42 no longer does it during `npm install`). Keep it in the repository's cache too:
 
 ```bash
 export electron_config_cache='D:\Claude\github\RecPro\.cache\electron'
 ```
 
-If that download fails on a slow connection, fetch the zip with curl into the folder the installer looks in (`<cache>\<sha256 of the release URL's folder>\electron-vX.Y.Z-win32-x64.zip`), check its SHA-256 against `node_modules/electron/checksums.json`, and run `npm install` again: it uses the cached file.
+If that download fails on a slow connection, fetch the zip with curl into the folder it looks in (`<cache>\<sha256 of the release URL's folder>\electron-vX.Y.Z-win32-x64.zip`, for example `https://github.com/electron/electron/releases/download/v42.11.18`), check its SHA-256 against `node_modules/electron/checksums.json`, then start it again: it unpacks the cached file.
 
 AI models download into the engine's data folder (`.devdata\models` in development), never to a user cache.
 
