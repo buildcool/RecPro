@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { lazy, Suspense, useEffect } from 'react';
 import { createHashRouter, Navigate, Outlet, RouterProvider, useLocation } from 'react-router';
 import { AppShell } from './app/AppShell';
-import { Spinner } from './components/ui';
+import { AppError, PageError } from './app/ErrorScreens';
+import { Button, Spinner } from './components/ui';
 import { usePrivateActivity, usePrivateHotkeys } from './features/private/PrivateLock';
 import { get } from './lib/api';
 import { setTheme, type ThemePref } from './lib/theme';
@@ -32,12 +33,34 @@ const Onboarding = lazyPage('OnboardingPage', () => import('./pages/Onboarding')
 
 function Gate() {
   const loc = useLocation();
-  const { data: settings, isLoading } = useQuery({ queryKey: ['settings'], queryFn: () => get<Settings>('/api/settings'), retry: 30, retryDelay: 1000 });
+  const { data: settings, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => get<Settings>('/api/settings'),
+    retry: 30,
+    retryDelay: 1000,
+  });
   usePrivateHotkeys();
   usePrivateActivity();
   useEffect(() => {
     if (settings?.theme) setTheme(settings.theme as ThemePref);
   }, [settings?.theme]);
+  if (isError && !settings) {
+    // half a minute of tries without an answer: say so instead of spinning for ever
+    return (
+      <div className="flex h-full items-center justify-center bg-canvas p-8" role="alert">
+        <div className="max-w-md text-center">
+          <h1 className="text-lg font-semibold">RecPro’s engine isn’t answering</h1>
+          <p className="mt-1.5 text-sm text-fg-2">
+            It runs on this PC and starts with the app. Try again; if it keeps happening, close RecPro and open it again. Its log is in the data folder,
+            under logs.
+          </p>
+          <Button variant="primary" className="mt-5" loading={isFetching} onClick={() => void refetch()}>
+            Try again
+          </Button>
+        </div>
+      </div>
+    );
+  }
   if (isLoading || !settings) {
     return (
       <div className="flex h-full items-center justify-center gap-3 text-fg-2">
@@ -66,29 +89,36 @@ function Page({ children }: { children: React.ReactNode }) {
 const router = createHashRouter([
   {
     element: <Gate />,
+    errorElement: <AppError />,
     children: [
-      { path: '/welcome', element: <Page><Onboarding /></Page> },
+      { path: '/welcome', element: <Page><Onboarding /></Page>, errorElement: <AppError /> },
       {
         element: <AppShell />,
         children: [
-          { path: '/', element: <Page><Home /></Page> },
-          { path: '/photos', element: <Page><Photos /></Page> },
-          { path: '/people', element: <Page><PeoplePage /></Page> },
-          { path: '/people/:id', element: <Page><PersonPage /></Page> },
-          { path: '/find', element: <Page><FindPage /></Page> },
-          { path: '/explore', element: <Page><ExplorePage /></Page> },
-          { path: '/explore/:id', element: <Page><LabelPage /></Page> },
-          { path: '/search', element: <Page><SearchPage /></Page> },
-          { path: '/review', element: <Page><ReviewPage /></Page> },
-          { path: '/private', element: <Page><PrivatePage /></Page> },
-          { path: '/folders', element: <Page><Folders /></Page> },
-          { path: '/cleanup', element: <Page><CleanupPage /></Page> },
-          { path: '/places', element: <Page><PlacesPage /></Page> },
-          { path: '/memories', element: <Page><MemoriesPage /></Page> },
-          { path: '/memories/:key', element: <Page><MemoryPage /></Page> },
-          { path: '/history', element: <Page><HistoryPage /></Page> },
-          { path: '/settings', element: <Page><Settings /></Page> },
-          { path: '*', element: <Navigate to="/" replace /> },
+          {
+            // a screen that fails shows an error in its place; the sidebar keeps working
+            errorElement: <PageError />,
+            children: [
+              { path: '/', element: <Page><Home /></Page> },
+              { path: '/photos', element: <Page><Photos /></Page> },
+              { path: '/people', element: <Page><PeoplePage /></Page> },
+              { path: '/people/:id', element: <Page><PersonPage /></Page> },
+              { path: '/find', element: <Page><FindPage /></Page> },
+              { path: '/explore', element: <Page><ExplorePage /></Page> },
+              { path: '/explore/:id', element: <Page><LabelPage /></Page> },
+              { path: '/search', element: <Page><SearchPage /></Page> },
+              { path: '/review', element: <Page><ReviewPage /></Page> },
+              { path: '/private', element: <Page><PrivatePage /></Page> },
+              { path: '/folders', element: <Page><Folders /></Page> },
+              { path: '/cleanup', element: <Page><CleanupPage /></Page> },
+              { path: '/places', element: <Page><PlacesPage /></Page> },
+              { path: '/memories', element: <Page><MemoriesPage /></Page> },
+              { path: '/memories/:key', element: <Page><MemoryPage /></Page> },
+              { path: '/history', element: <Page><HistoryPage /></Page> },
+              { path: '/settings', element: <Page><Settings /></Page> },
+              { path: '*', element: <Navigate to="/" replace /> },
+            ],
+          },
         ],
       },
     ],

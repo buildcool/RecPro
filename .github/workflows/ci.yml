@@ -35,5 +35,7 @@ jobs:
         run: npm run typecheck
       - name: Build the UI and the desktop shell
         run: npm run build
+      - name: UI tests (error screens)
+        run: npm run test:ui
       - name: Desktop updater (version order, settings, Strict offline, page fallback)
         run: npm test -w desktop

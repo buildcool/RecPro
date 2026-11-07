@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 import string
@@ -9,12 +10,27 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 from .. import __version__
 from ..context import Context
 from .deps import ctx
 
 router = APIRouter()
+ui_log = logging.getLogger("recpro.ui")
+
+
+class UiError(BaseModel):
+    where: str = ""
+    message: str = ""
+    stack: str = ""
+
+
+@router.post("/api/diagnostics/ui-error")
+def ui_error(body: UiError) -> dict[str, bool]:
+    """A screen in the app failed: kept in the engine's log on this PC, next to its own errors."""
+    ui_log.warning("screen failed at %s: %s\n%s", body.where[:300], body.message[:500], body.stack[:4000])
+    return {"ok": True}
 
 
 @router.get("/api/health")
