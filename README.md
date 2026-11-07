@@ -13,7 +13,10 @@ Nothing leaves your PC. Faces, photos, videos and text are analyzed on this comp
 | **Copy and move safely** | Copy → verify (BLAKE3 checksum of every file) → ask → move originals to the RecPro Bin. Everything can be undone; only *Empty bin* deletes permanently. |
 | **Private section** | Romance, suggestive and nudity content is detected with the same ask-when-unsure care as faces, kept in a PIN- or password-locked, blurred Private section. After you unlock, toggles let you turn blur off or show private items everywhere; it locks itself again automatically. |
 | **Videos** | Faces are followed through every video: see who is on screen when, jump straight to them from a search, find words that were said, and spot private content in part of a video. Formats the player can't open get a playable copy. |
-| **Search by anything** | Activities, moods, objects, pets, documents and IDs (Aadhaar, PAN, passport, driving licence, voter ID), screenshots by app, text inside images, speech in videos, places and dates. *(see [Roadmap](docs/ROADMAP.md) for what's built today)* |
+| **Search by anything** | Activities, moods, objects, pets, documents and IDs (Aadhaar, PAN, passport, driving licence, voter ID), screenshots by app, text inside images, speech in videos, places and dates. Save the searches you come back to. |
+| **Places and trips** | Where each photo was taken, named on this PC, on a map that works offline. Trips away from home and celebrations become day-by-day pages, and *On this day* brings back photos from earlier years. |
+| **Clean up** | Duplicates, smaller copies, similar shots, dark and blurry photos and WhatsApp forwards, with the best one kept and the rest moved to the RecPro Bin, all undoable. |
+| **Your answers travel** | Export the people you named and your answers, import them on another PC; optional XMP sidecars let Lightroom or digiKam see people, categories and places. |
 
 ## Status
 
@@ -58,3 +61,7 @@ docs/      Architecture, privacy model, development guide, roadmap
 ## Licenses of AI models
 
 RecPro is built for personal use with the most accurate models available. Some of them have restrictive licenses: the InsightFace recognition weights are non-commercial, and NudeNet and Ultralytics YOLO are AGPL-3.0. Before distributing RecPro commercially, swap them for a commercial-safe set (YuNet/SFace/AuraFace, RF-DETR, …). Models are downloaded once, on request, and checked against SHA-256 hashes.
+
+## Data shipped with RecPro
+
+Place names © [GeoNames](https://www.geonames.org), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (see `engine/recpro/data/README.md`). Map outlines from [Natural Earth](https://www.naturalearthdata.com) (public domain), through the `world-atlas` package.

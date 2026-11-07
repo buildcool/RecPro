@@ -79,6 +79,36 @@ engine/.venv/Scripts/python -I scripts/make_video_samples.py .testdata/lfw/lfw.t
 
 The video and speech tests make their own small videos with ffmpeg (CI installs it). Speech needs the speech model (Settings → AI models, 1.6 GB from Hugging Face into the data folder).
 
+### Cleanup samples
+
+`scripts/make_cleanup_samples.py` makes, from LFW photos, a camera burst (one shot shaken), exact copies in `Backup/`, a smaller WhatsApp copy and a forward, and very dark and very blurred photos, with `truth.json` saying what each group should be:
+
+```bash
+engine/.venv/Scripts/python -I scripts/make_cleanup_samples.py .testdata/lfw/lfw.tgz .testdata/cleanup-samples
+```
+
+### Places samples
+
+`scripts/make_places_samples.py` writes LFW photos with camera EXIF, capture times and GPS positions into one `Camera/` folder, the way a phone keeps them: home in Pune over 18 months, trips to Goa, Jaipur, Paris and Lonavala, two photos on today's date one and three years back (for On this day), and in `Odd/` a 0,0 position and one at sea. LFW photos already in the third folder are skipped so nothing shows up as a duplicate. `truth.json` has each photo's town and the trips:
+
+```bash
+engine/.venv/Scripts/python -I scripts/make_places_samples.py .testdata/lfw/lfw.tgz .testdata/places-samples .testdata/lfw-lib
+```
+
+### Place table
+
+`engine/recpro/data/places.npz` is built from three GeoNames files (CC BY 4.0). To rebuild it, download them into `.cache/geonames`, then:
+
+```bash
+for f in cities1000.zip admin1CodesASCII.txt countryInfo.txt; do curl -sSfL -o ".cache/geonames/$f" "https://download.geonames.org/export/dump/$f"; done
+```
+
+```bash
+engine/.venv/Scripts/python -I scripts/build_places.py .cache/geonames engine/recpro/data/places.npz
+```
+
+The map's country outlines come from the `world-atlas` npm package (Natural Earth). The d3 packages are pinned to their 2021-2024 releases in the root `package.json` (`overrides`): new versions of all of them appeared together in November 2026, and nothing here needs them.
+
 ### Keep downloads and caches on D:
 
 This project keeps every download off C:. Before installing Python packages, point uv's cache and temp folders into the repository (npm already uses `.cache/npm` through the project `.npmrc`):

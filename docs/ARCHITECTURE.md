@@ -55,17 +55,19 @@ Each stage owns a version column on `media`. A row needs a stage while its colum
 2. **Private pre-check**: a fast sensitivity check on the thumbnail before it is shown *(M3)*.
 3. **Deep pass**: decode once, run every model batched on the GPU: faces, embeddings, attributes, SigLIP 2, sensitive ensemble, objects, quality *(M2–M4)*.
 4. **Text pass** (`jobs/text.py`): reads the words in photos whose stored category scores say document, ID card, screenshot or meme (or whose file looks like a screenshot), then finds ID documents and screenshot apps. See [Text in photos](#text-in-photos-mlocrpy-jobstextpy-idspy-screenspy).
-5. **Video pass** (`jobs/video.py`): each video watched once: faces tracked into one face per person with the time spans they're on screen, private content and categories with their spans, and scene frames for searching moments. See [Videos](#videos-jobsvideopy-mltrackspy-framelabelspy-libraryvideopy).
-6. **Speech pass** (`jobs/speech.py`): what is said in each video, with times. The last and slowest stage.
-7. **Grouping**: clustering, person matching, tiers, review queue *(M2)*; duplicates and events arrive with M7.
+5. **Quality pass** (`jobs/quality.py`): brightness, highlights and sharpness of each photo, from its thumbnail, for Cleanup.
+6. **Places pass** (`jobs/places.py`): the town, and the city it belongs to, of every photo and video with a GPS position, from the place table shipped with the engine. See [Places](#places-libraryplacespy-jobsplacespy-apiroutes_placespy).
+7. **Video pass** (`jobs/video.py`): each video watched once: faces tracked into one face per person with the time spans they're on screen, private content and categories with their spans, and scene frames for searching moments. See [Videos](#videos-jobsvideopy-mltrackspy-framelabelspy-libraryvideopy).
+8. **Speech pass** (`jobs/speech.py`): what is said in each video, with times. The last and slowest stage.
+9. **Grouping**: clustering, person matching, tiers and the review queue run all the time *(M2)*. Duplicates, trips and events are worked out when asked for (see [Cleanup](#cleanup-cleanuppy-jobsqualitypy) and [Trips](#trips-events-and-on-this-day-memoriespy)).
 
 The UI's status bar and Home page show per-stage progress and rate; folders being searched right now are processed first (`Indexer.focus`).
 
 ### Data model (SQLite)
 
-`folders` · `media` (path, size, mtime, hashes, dimensions, taken_at, GPS, kind, duration, stage versions, private state) · `people` · `faces` (box, landmarks, quality, embedding, person, state, score) · `face_votes` (your yes/no answers) · `ref_faces` (faces from photos you dropped in) · `labels` (taxonomy, prompts, thresholds) · `media_labels` (score, tier, state, time range) · `embeddings` · `texts` (FTS5, trigram) · `operations` + `op_items` (file-operation journal) · `settings`.
+`folders` · `media` (path, size, mtime, hashes, dimensions, taken_at, GPS, kind, duration, stage versions, private state, quality facts, town and city) · `people` · `faces` (box, landmarks, quality, embedding, person, state, score) · `face_votes` (your yes/no answers) · `media_people` (photos a person is in without a visible face) · `ref_faces` (faces from photos you dropped in) · `labels` (taxonomy, prompts, thresholds) · `media_labels` (score, tier, state, time range) · `embeddings` · `texts` and `speech` (FTS5, trigram) · `places` (the towns photos are in) · `saved_searches` · `pending_answers` (imported answers waiting for their photos) · `operations` + `op_items` (file-operation journal) · `settings`.
 
-Your answers (`face_votes`, confirmed/rejected states) are never overwritten by re-indexing or model upgrades.
+Your answers (`face_votes`, `media_people`, confirmed/rejected states) are never overwritten by re-indexing, model upgrades or an import.
 
 ## AI models (`ml/models.py`)
 
@@ -164,6 +166,52 @@ For a named person, photos from the same directory within 3 hours of a photo whe
 
 A photo whose faces are all clear and someone else's isn't suggested: the person isn't recognisable there, which is different from their face being hidden. Answers are stored in `media_people`. A yes counts in Find as a sure match without a face, a no is never asked again, and Find tells you how many are left for the person searched.
 
+## Cleanup (`cleanup.py`, `jobs/quality.py`)
+
+Cleanup proposes, you choose, and a removal is one operation in History that moves files to the RecPro Bin; Undo puts them back.
+
+| Kind | Found by | What stays |
+|---|---|---|
+| Exact duplicates | the same quick hash (size and the first and last 64 KB); at removal both files' full BLAKE3 hashes must match | the original-looking one (as for copies) |
+| Copies | perceptual hash within 6 bits (found through 4 bands of 16 bits) and SigLIP cosine ≥ 0.85, which rules out flat images | camera EXIF beats none, a forward loses, then pixels and size; a much blurrier file never wins |
+| Similar shots | camera photos with an EXIF time, in one folder, < 60 s apart, SigLIP cosine ≥ 0.95. A file's modified time isn't a moment: a copied folder shares one | 0.5 × sharpness + 0.2 × exposure + 0.3 × best face quality |
+| Too dark | thumbnail mean < 40 and 95th percentile < 110, so night shots with lights stay | — |
+| Blurry or by accident | SigLIP *Sure* blurry and Laplacian variance < 45 on the thumbnail (SigLIP alone also calls small or soft photos blurry), *Sure* accidental shots, and your confirmations | — |
+| WhatsApp forwards | no camera EXIF, and a WhatsApp file name or folder; greetings and memes first | — |
+
+A group is never emptied: each removed file names the one it's removed for, and goes only while that one is still there and isn't being removed too. Results are cached for a minute per view (Private locked or open) and library size, so nothing private is listed after re-locking. The summary's total counts each file once.
+
+## Places (`library/places.py`, `jobs/places.py`, `api/routes_places.py`)
+
+The engine ships `data/places.npz`: GeoNames' `cities1000` (about 172,000 towns of 1,000+ people and every district seat, CC BY 4.0) with state, country, position and population, 3 MB, rebuilt by `scripts/build_places.py`. Nothing is looked up online.
+
+- **Naming.** A KD-tree on unit vectors finds the nearest town (the locality). The city is the place in the same country and state, within 30 km, with the highest population / (1 + km/2)². So Shivaji Nagar is in Pune, Calangute (13 km from Panaji) keeps its name, and Kehl isn't Strasbourg. A position more than 150 km from any town (at sea) or at 0,0 gets no place. Where the local script isn't Latin the plain spelling is shown (Thane, not Thāne).
+- **Map.** The UI draws Natural Earth country outlines (`world-atlas`, 50 m, bundled) with d3-geo in fixed Mercator coordinates; the zoom transform is the window, so resizing doesn't move the view. Dots are photos grouped on a grid about 64 px wide on screen, merged when closer than one cell, never with a private cover. Once you zoom in, the biggest towns from the same table label the map.
+- **Search.** Town, state and country names with photos match without accents or case ("ile-de-france"), and next to a place "trip", "holiday" and the like are dropped ("Goa trip 2023").
+
+## Trips, events and On this day (`memories.py`)
+
+- **Home** is the town with photos on the most different days, or the one picked on the Places page (`places.home_city_id`).
+- **Trips** are runs of 2 or more photos 50+ km from home, with no photo at home in between and never 2½ days without one. One is named after the town with 60% or more of its photos, else the state or country if they're all in one (other than home's), else its two main towns. Camera photos without a location taken during it belong to it.
+- **Events** are sessions of camera photos (gaps under 3 hours, 6 or more photos) where wedding, birthday, festival, party or concert is *Sure* on at least a quarter of them, and at least 3.
+- **On this day** lists photos from today's date in earlier years, leaving out screenshots, documents, IDs, greetings, memes, photo-quality labels and private items (always, even with Private open).
+
+All of it is worked out when asked and cached for a minute, keyed by the view, the library size and home, so answers count straight away.
+
+## Saved searches
+
+A saved search keeps the words and the chips you removed (`saved_searches`). It runs again each time it's opened, so new photos join it.
+
+## Names and answers in a file (`labels_io.py`)
+
+**Export** writes JSON: people (name, birthdate, hidden), their face answers (photo, box, the frame for videos, yes or no), the photos they're in without a visible face, and category answers, with your own categories' descriptions. Photos are identified by the quick hash, never the path. Nothing about private photos or the private categories goes in.
+
+**Import** makes the people and your categories that aren't there, then applies the answers. A face matches the face found at the same spot (IoU ≥ 0.6, and within 1.5 s in a video). An answer already given on this PC is never changed. Answers for photos not read yet, or faces not found yet, wait in `pending_answers`; the indexer applies them after its quick, deep and video passes.
+
+## XMP sidecars (`xmp.py`)
+
+Only on request: `IMG_1234.jpg.xmp` next to each photo with its people (confirmed or *Sure* faces, and yes answers for hidden faces), categories (*Sure* or confirmed; never private, ID or photo-quality ones) and place, as `dc:subject`, `lr:hierarchicalSubject`, `digiKam:TagsList`, `Iptc4xmpExt:PersonInImage` and `photoshop:City/State/Country`. A sidecar without RecPro's namespace belongs to another app and is left alone. Private photos never get one. Face areas aren't written, because apps disagree on how they apply to rotated photos.
+
 ## File operations (`ops/service.py`)
 
 The copy-and-move engine is the part that must never lose a file. Its guarantees, each covered by `engine/tests/test_ops.py`:
@@ -193,4 +241,5 @@ The copy-and-move engine is the part that must never lose a file. Its guarantees
 - The engine listens on 127.0.0.1 only, on a random port, and requires a 256-bit token generated by the desktop app at every launch.
 - The UI's CSP allows only its own origin, the app protocols and 127.0.0.1. Fonts and icons are bundled; there are no CDNs.
 - Outbound network use is limited to the one-time model and GPU pack downloads, which the user starts, and the update check (Settings → Updates). *Strict offline* blocks all of them.
+- Place names and the map come from data shipped with the app; no map-tile or geocoding service is ever contacted.
 - Private content: see [PRIVACY.md](PRIVACY.md).

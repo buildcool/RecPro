@@ -48,6 +48,13 @@ All notable changes to RecPro. Versions follow [Semantic Versioning](https://sem
 - Playable copies: a video the player can't open (HEVC without a decoder, AVI, old codecs) gets an H.264 copy on demand, on the NVIDIA encoder when there is one.
 - Speech search: Whisper large-v3 turbo transcribes what is said in videos (on this PC, on the processor); search finds the words and opens the video where they're said, and the viewer lists the transcript with times.
 - Faces that aren't visible: Review → *Face hidden?* suggests photos from the same outing where someone may be with their face turned away or too unclear; a yes counts in Find.
+- Clean up: exact duplicates, copies (smaller, recompressed, sent through WhatsApp), similar shots, too dark, blurry or taken by accident, and WhatsApp forwards. Each group shows the photo that stays (click another to keep it instead), the rest go to the RecPro Bin as one operation with Undo, and a group is never emptied. Home shows how much you could free.
+- Places: every photo and video with a GPS position gets its town, state and country on this PC, from a table of towns that ships with RecPro (GeoNames). A map drawn from bundled country outlines shows dots of photos that split as you zoom, with town names, and the photos of the area shown. Explore lists the top places, and a photo's details name its place with a link to the map.
+- Search by place: towns, states and countries, without accents ("Goa trip 2023").
+- Trips and events: the days away from home (home worked out from your photos, or picked on the Places page) and the celebrations in your photos, each with a day-by-day page you can copy or move in one go. On this day on Home shows photos from today's date in earlier years.
+- Saved searches, kept with the chips you removed, in Explore and Ctrl+K.
+- Your names and answers in a file: export the people you named and the answers you gave, import them on another PC (photos matched by content, not path; answers for photos not read yet apply when they are). Nothing about private photos is exported.
+- XMP sidecars for Lightroom, digiKam and other apps, only when you ask: people, categories and place next to each photo, never for private photos and never over another app's sidecar.
 
 ### Fixed
 - A clean install no longer hangs while preparing photos: SciPy (for the perceptual hash) is loaded at start-up, not first by the quick pass's worker threads, whose load of its BLAS library never finished.

@@ -8,6 +8,7 @@ RecPro's promise is simple: **nothing leaves this PC.**
 - Faces and face data (embeddings), names you give people and your answers
 - Text read from images (OCR) and speech transcribed from videos
 - Categories, private-content scores, locations and everything else RecPro learns
+- Where your photos were taken: places are named from a table of towns that ships with RecPro (GeoNames), and the map is drawn from country outlines that ship with it (Natural Earth). No map or geocoding service is ever contacted
 
 All analysis runs locally with ONNX Runtime (on your graphics card when available).
 
@@ -28,7 +29,7 @@ Everything RecPro creates is in its data folder, chosen during setup (for exampl
 
 | Path | Contents |
 |---|---|
-| `recpro.db` | Library index, faces, people, labels, text read from photos and speech from videos (ID numbers masked), when people and categories appear in videos, your answers, settings, operation history |
+| `recpro.db` | Library index, faces, people, labels, text read from photos and speech from videos (ID numbers masked), when people and categories appear in videos, the towns photos were taken in, your answers and saved searches, settings, operation history |
 | `thumbs/`, `previews/`, `faces/` | Small images for the interface, and playable copies of videos the player can't open (never of private videos) |
 | `private/` | Encrypted thumbnails and previews of private items |
 | `models/` | Downloaded AI models |
@@ -37,6 +38,12 @@ Everything RecPro creates is in its data folder, chosen during setup (for exampl
 Your original files are never modified by analysis. They are only copied, moved or removed when you ask, and removals go to the restorable RecPro Bin (see [ARCHITECTURE.md](ARCHITECTURE.md#file-operations-opsservicepy)).
 
 Files whose content lives only in the cloud (OneDrive "online-only", Dropbox placeholders) are skipped, because reading them would download them.
+
+## Files RecPro writes only when you ask
+
+- **Your names and answers** (Settings → Your names and answers → *Export*): a JSON file, saved where you choose, with the people you named and your answers. Photos in it are identified by a hash of their content, not by their name or folder. Nothing about private photos is in it.
+- **XMP sidecars** (*Write sidecars*): a small `.xmp` file next to a photo, with its people, categories and place, for other photo apps. Private photos never get one, private categories and ID documents are never written, and a sidecar another app made is never overwritten.
+- **Cleanup** moves files only to the RecPro Bin, as one operation you can undo.
 
 ## Private section
 
