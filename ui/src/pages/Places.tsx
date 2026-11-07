@@ -134,10 +134,9 @@ export function PlacesPage() {
         {inView.length > 0 && (
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" role="list" aria-label="Places in this area">
             {inView.slice(0, 40).map((p) => (
+              <div key={p.id} role="listitem" className="shrink-0">
               <button
-                key={p.id}
                 type="button"
-                role="listitem"
                 onClick={() => setFocus({ bounds: [p.lat, p.lon, p.lat, p.lon], key: Date.now() })}
                 className="flex w-[200px] shrink-0 items-center gap-2.5 rounded-xl border border-line bg-surface p-2 text-left transition-colors hover:bg-surface-2"
                 title={placeName(p)}
@@ -152,6 +151,7 @@ export function PlacesPage() {
                   </span>
                 </span>
               </button>
+              </div>
             ))}
           </div>
         )}

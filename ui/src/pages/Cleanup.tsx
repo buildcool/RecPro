@@ -212,7 +212,7 @@ function Groups({ kind, title }: { kind: CleanupKind; title: string }) {
           const keeper = g.find((x) => x.id === k)!;
           const rest = g.filter((x) => x.id !== k);
           return (
-            <section key={key} className="rounded-xl border border-line bg-surface p-3" aria-label={`Group of ${g.length}`}>
+            <div key={key} role="group" className="rounded-xl border border-line bg-surface p-3" aria-label={`${g.length} photos, keeps ${keeper.name}`}>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
                 {g.map((x, i) => (
                   <Tile
@@ -239,7 +239,7 @@ function Groups({ kind, title }: { kind: CleanupKind; title: string }) {
                   Move {num(rest.length)} to Bin ({bytes(rest.reduce((a, x) => a + x.size, 0))})
                 </Button>
               </div>
-            </section>
+            </div>
           );
         })}
       </div>

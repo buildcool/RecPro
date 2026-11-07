@@ -48,10 +48,23 @@ export function AppShell() {
 
   return (
     <div className="flex h-full flex-col">
+      <a
+        href="#main"
+        onClick={(e) => {
+          e.preventDefault(); // the address is the app's route: move focus instead of navigating
+          document.getElementById('main')?.focus();
+        }}
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:shadow"
+      >
+        Skip to content
+      </a>
       <TopBar />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
-        <main className="relative min-w-0 flex-1 overflow-hidden bg-canvas">
+        <main id="main" tabIndex={-1} className="relative min-w-0 flex-1 overflow-hidden bg-canvas outline-none">
+          <span id="rp-tile-hint" className="sr-only">
+            Enter opens it. Space selects it.
+          </span>
           <Outlet />
         </main>
       </div>

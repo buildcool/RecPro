@@ -78,6 +78,7 @@ export function SearchPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="px-6 pb-3 pt-5">
+        <h1 className="sr-only">Search</h1>
         <form
           onSubmit={(e) => {
             e.preventDefault();

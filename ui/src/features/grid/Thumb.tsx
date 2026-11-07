@@ -3,7 +3,7 @@ import { Check, EyeOff, ImageOff, Lock, Play, Users } from 'lucide-react';
 import { memo, type MouseEvent, useRef, useState } from 'react';
 import { mediaUrl } from '../../lib/api';
 import { bridge } from '../../lib/bridge';
-import { clock, duration } from '../../lib/format';
+import { clock, dateLong, duration } from '../../lib/format';
 import { useSelection } from '../../lib/selection';
 import type { MediaItem } from '../../lib/types';
 
@@ -26,7 +26,15 @@ export const Thumb = memo(function Thumb({ item, box, selected, selecting, onAct
     <div
       role="button"
       tabIndex={0}
-      aria-label={`${item.kind === 'video' ? 'Video' : 'Photo'}${selected ? ', selected' : ''}`}
+      aria-label={[
+        item.kind === 'video' ? `Video, ${duration(item.dur)}` : 'Photo',
+        item.t ? dateLong(item.t) : null,
+        item.priv ? 'private' : null,
+        selected ? 'selected' : null,
+      ]
+        .filter(Boolean)
+        .join(', ')}
+      aria-describedby="rp-tile-hint"
       aria-pressed={selected}
       className={clsx(
         'group absolute cursor-pointer overflow-hidden rounded-[6px] bg-thumb outline-none focus-visible:ring-2 focus-visible:ring-accent',
@@ -81,22 +89,22 @@ export const Thumb = memo(function Thumb({ item, box, selected, selecting, onAct
         />
       )}
       {selected && <div className="pointer-events-none absolute inset-0 rounded-[6px] ring-[3px] ring-inset ring-accent" />}
-      {/* selection checkbox */}
-      <button
-        type="button"
-        aria-label={selected ? 'Deselect' : 'Select'}
+      {/* the selection circle: a shortcut for the mouse. Keyboards and screen readers select with Space on the
+          tile itself (a control inside a control isn't reachable for them) */}
+      <span
+        aria-hidden
         onClick={(e) => {
           e.stopPropagation();
           onToggle(item, e);
         }}
         className={clsx(
-          'absolute left-1.5 top-1.5 flex size-6 items-center justify-center rounded-full border-2 transition-opacity',
+          'absolute left-1.5 top-1.5 flex size-6 cursor-pointer items-center justify-center rounded-full border-2 transition-opacity',
           selected ? 'border-accent bg-accent text-white opacity-100' : 'border-white/90 bg-black/20 text-transparent opacity-0 group-hover:opacity-100',
           selecting && !selected && 'opacity-100',
         )}
       >
         <Check className="size-3.5" strokeWidth={3} />
-      </button>
+      </span>
       {item.kind === 'video' && (
         <span
           className="pointer-events-none absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-medium text-white"
@@ -113,7 +121,7 @@ export const Thumb = memo(function Thumb({ item, box, selected, selecting, onAct
         </span>
       )}
       {item.priv && (
-        <span className="pointer-events-none absolute right-1.5 top-1.5 rounded-md bg-private/90 p-1 text-white">
+        <span className="pointer-events-none absolute right-1.5 top-1.5 rounded-md bg-private-strong/90 p-1 text-white">
           <Lock className="size-3" />
         </span>
       )}

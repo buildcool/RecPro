@@ -199,7 +199,7 @@ function MonthSection({
         >
           <Check className="size-3" strokeWidth={3} />
         </button>
-        <h3 className="text-[15px] font-semibold">{monthTitle(month.ym)}</h3>
+        <h2 className="text-[15px] font-semibold">{monthTitle(month.ym)}</h2>
         <span className="text-[13px] text-fg-3">{num(month.count)}</span>
       </div>
       <div className="relative" style={{ height }}>

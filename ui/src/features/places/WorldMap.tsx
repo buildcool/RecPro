@@ -225,7 +225,7 @@ export function WorldMap({ focus, onView }: { focus: { bounds: Bounds; key: numb
 
   return (
     <div ref={box} className="relative h-full w-full overflow-hidden rounded-2xl border border-line bg-[var(--map-water)]">
-      <svg ref={svg} width={size.w} height={size.h} className="block touch-none select-none" role="img" aria-label="Map of where your photos were taken">
+      <svg ref={svg} width={size.w} height={size.h} className="block touch-none select-none" role="group" aria-label="Map of where your photos were taken">
         <defs>
           <clipPath id="rp-dot" clipPathUnits="objectBoundingBox">
             <circle cx="0.5" cy="0.5" r="0.5" />
@@ -316,7 +316,7 @@ export function WorldMap({ focus, onView }: { focus: { bounds: Bounds; key: numb
           <RotateCcw className="size-3.5" />
         </button>
       </div>
-      <div className="pointer-events-none absolute bottom-2 left-3 text-[10px] text-fg-3">Map: Natural Earth · Place names: GeoNames · on this PC</div>
+      <div className="pointer-events-none absolute bottom-2 left-3 text-[10px] text-fg-2">Map: Natural Earth · Place names: GeoNames · on this PC</div>
       {!paths && <div className="absolute inset-0 flex items-center justify-center text-sm text-fg-3">Drawing the map…</div>}
       {data && data.clusters.length === 0 && paths && (
         <div className="pointer-events-none absolute inset-x-0 top-3 text-center text-xs text-fg-3">No photos with a location in this area</div>

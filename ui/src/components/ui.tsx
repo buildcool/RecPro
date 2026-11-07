@@ -15,7 +15,7 @@ const variants: Record<Variant, string> = {
   ghost: 'text-fg-2 hover:bg-surface-2 hover:text-fg',
   soft: 'bg-accent-soft text-accent-text hover:bg-accent-soft/70',
   danger: 'bg-bad text-white hover:bg-bad/90',
-  private: 'bg-private text-white hover:bg-private/90',
+  private: 'bg-private-strong text-white hover:bg-private-strong/90',
 };
 const sizes: Record<Size, string> = {
   xs: 'h-7 px-2 text-xs gap-1.5 rounded-md',
@@ -116,7 +116,7 @@ export function Switch({
       aria-label={label}
       className={clsx(
         'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full bg-surface-3 transition-colors disabled:opacity-50',
-        tone === 'private' ? 'data-[state=checked]:bg-private' : 'data-[state=checked]:bg-accent',
+        tone === 'private' ? 'data-[state=checked]:bg-private-strong' : 'data-[state=checked]:bg-accent',
       )}
     >
       <SwitchP.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow transition-transform data-[state=checked]:translate-x-[18px]" />
@@ -145,7 +145,7 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: Tone; 
 
 // ---- Progress ---------------------------------------------------------------
 export function Progress({ value, tone = 'accent', className }: { value: number; tone?: 'accent' | 'ok' | 'warn' | 'private'; className?: string }) {
-  const color = { accent: 'bg-accent', ok: 'bg-ok', warn: 'bg-warn', private: 'bg-private' }[tone];
+  const color = { accent: 'bg-accent', ok: 'bg-ok', warn: 'bg-warn', private: 'bg-private-strong' }[tone];
   return (
     <div className={clsx('h-1.5 w-full overflow-hidden rounded-full bg-surface-3', className)}>
       <div className={clsx('h-full rounded-full transition-[width] duration-500', color)} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />

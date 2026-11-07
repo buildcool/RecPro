@@ -66,7 +66,7 @@ export function SensitiveReview() {
           return (
             <div
               key={it.id}
-              className={clsx('relative aspect-square cursor-pointer overflow-hidden rounded-xl border-2 bg-thumb', on ? 'border-private' : 'border-transparent')}
+              className={clsx('relative aspect-square cursor-pointer overflow-hidden rounded-xl border-2 bg-thumb', on ? 'border-private-strong' : 'border-transparent')}
               onClick={() => setSel((s) => {
                 const n = new Set(s);
                 if (n.has(it.id)) n.delete(it.id);
@@ -89,7 +89,7 @@ export function SensitiveReview() {
               <span className="absolute bottom-1.5 left-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
                 {it.top?.split('.')[1] ?? 'unsure'} · {Math.round(it.score * 100)}%
               </span>
-              <span className={clsx('absolute right-2 top-2 flex size-6 items-center justify-center rounded-full border-2', on ? 'border-private bg-private text-white' : 'border-white bg-black/30 text-transparent')}>
+              <span className={clsx('absolute right-2 top-2 flex size-6 items-center justify-center rounded-full border-2', on ? 'border-private-strong bg-private-strong text-white' : 'border-white bg-black/30 text-transparent')}>
                 <Check className="size-3.5" strokeWidth={3} />
               </span>
             </div>

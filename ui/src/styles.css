@@ -10,8 +10,8 @@
   --line: rgba(24, 24, 22, 0.09);
   --line-strong: rgba(24, 24, 22, 0.16);
   --fg: #1c1c1a;
-  --fg-2: #5b5a56;
-  --fg-3: #8c8b85;
+  --fg-2: #4a4945;
+  --fg-3: #6b6a65; /* 4.6:1 on surface-2, 5.3:1 on white */
   --accent: #2563eb;
   --accent-soft: #e7eefd;
   --accent-fg: #ffffff;
@@ -23,6 +23,7 @@
   --bad: #b42318;
   --bad-soft: #fde8e5;
   --private: #6d3fd9;
+  --private-strong: #6d3fd9; /* filled, under white: 6.3:1 */
   --private-soft: #efe8fd;
   --thumb: #e9e8e4;
   --map-water: #dfe8ef;
@@ -42,8 +43,8 @@
   --line-strong: rgba(255, 255, 255, 0.15);
   --fg: #ecebe8;
   --fg-2: #b0afa9;
-  --fg-3: #85847e;
-  --accent: #4f86f7;
+  --fg-3: #95948e; /* 4.6:1 on surface-3, 5.4:1 on surface-2 */
+  --accent: #3a6fe0; /* white text on it 4.6:1 */
   --accent-soft: #1b2a4a;
   --accent-fg: #ffffff;
   --accent-text: #8fb1fb;
@@ -54,6 +55,7 @@
   --bad: #f07167;
   --bad-soft: #3d1715;
   --private: #a684f5;
+  --private-strong: #7c55e0; /* filled, under white: 5:1 */
   --private-soft: #2a1f45;
   --thumb: #262626;
   --map-water: #121820;
@@ -86,6 +88,7 @@
   --color-bad-soft: var(--bad-soft);
   --color-private: var(--private);
   --color-private-soft: var(--private-soft);
+  --color-private-strong: var(--private-strong);
   --color-thumb: var(--thumb);
   --color-overlay: var(--overlay);
   --shadow-pop: var(--shadow);
