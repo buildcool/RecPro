@@ -234,4 +234,11 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX media_people_person ON media_people(person_id, state);
     """,
+    # v7 — photo quality facts from the thumbnail (Cleanup: too dark, the sharpest shot of a burst)
+    """
+    ALTER TABLE media ADD COLUMN quality_v INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE media ADD COLUMN brightness REAL;
+    ALTER TABLE media ADD COLUMN highlights REAL;
+    ALTER TABLE media ADD COLUMN sharpness REAL;
+    """,
 ]

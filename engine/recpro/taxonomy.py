@@ -20,7 +20,7 @@ from .labels import LabelDef
 
 log = logging.getLogger("recpro.taxonomy")
 
-TAXONOMY_V = 3  # v2: relative (group softmax) scoring; v3: "it's text" alternatives, private content on absolute scores
+TAXONOMY_V = 4  # v2: relative (group softmax) scoring; v3: "it's text" alternatives, private content on absolute scores; v4: photo quality
 
 
 def _d(key: str, name: str, grp: str, *prompts: str) -> LabelDef:
@@ -121,6 +121,10 @@ BUILTIN: list[LabelDef] = [
     _d("webpage", "Web pages", "screenshot", "a screenshot of a website", "a screenshot of a news article"),
     _d("code", "Code", "screenshot", "a screenshot of programming code"),
     _d("video_call", "Video calls", "screenshot", "a screenshot of a video call"),
+    # photo quality (for Cleanup; strict: only clear cases are "sure")
+    _d("blurry", "Blurry", "quality", "a blurry out-of-focus photo", "a photo with heavy motion blur", "a shaky blurred photo"),
+    _d("dark", "Too dark", "quality", "a very dark underexposed photo", "an almost black photo taken in the dark"),
+    _d("accidental", "Taken by accident", "quality", "an accidental photo of the floor", "a photo taken by mistake inside a pocket", "a finger covering the camera lens"),
     # people types (image level; per-face age/gender/emotion are separate filters)
     _d("group_photo", "Group photos", "people", "a group photo of many people", "a family group photo"),
     _d("couple", "Couples", "people", "a couple posing together"),
@@ -158,6 +162,10 @@ BACKGROUND: dict[str, list[str]] = {
         "a photo of a printed paper document", "a paper receipt", ID_BG,
     ],
     "entertainment": ["a normal photo", "a photo of people", "a portrait photo of a person", "an abstract colorful image", *TEXT_BG, ID_BG],
+    "quality": [
+        "a sharp clear photo", "a well-exposed photo", "a sharp photo of people", "a clear photo of a place",
+        "a night photo of city lights", "a photo of a sunset", *TEXT_BG,
+    ],
 }
 # Private content is scored on SigLIP's own (absolute) probability, with NudeNet alongside. A
 # softmax against a few "ordinary photo" prompts can't cover every kind of photo: measured on 733
@@ -215,6 +223,7 @@ GROUPS = [
     ("document", "Documents"),
     ("screenshot", "Screenshots"),
     ("entertainment", "Entertainment"),
+    ("quality", "Photo quality"),
     ("custom", "Your categories"),
 ]
 

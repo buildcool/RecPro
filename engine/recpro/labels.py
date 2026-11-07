@@ -38,7 +38,7 @@ THRESHOLDS: dict[str, dict[str, tuple[float, float]]] = {
     "file": {"never_miss": (0.50, 0.85), "balanced": (0.55, 0.85), "fewer": (0.65, 0.85)},
 }
 
-STRICT_GROUPS = ("mood", "people", "entertainment")
+STRICT_GROUPS = ("mood", "people", "entertainment", "quality")
 
 
 def source_key(src: str, grp: str) -> str:

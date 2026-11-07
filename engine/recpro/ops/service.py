@@ -386,6 +386,71 @@ class Ops:
         self.ctx.events.publish("library.changed", {"op": op_id})
         return {"removed": removed, "skipped": skipped}
 
+    def bin_media(self, media_ids: list[int], title: str, same_as: dict[int, int] | None = None) -> dict[str, Any]:
+        """Cleanup: moves these files straight to the RecPro Bin as one operation in History.
+
+        Undo puts them back. same_as maps a file to the copy that stays: it is only removed if both
+        files still have exactly the same content (full BLAKE3), so an "exact duplicate" can't be a
+        different file that merely starts and ends alike.
+        """
+        from ..library.hashing import full_hash
+
+        rows = {}
+        for i in range(0, len(media_ids), 900):
+            chunk = media_ids[i : i + 900]
+            for r in self.db.q(f"SELECT * FROM media WHERE id IN ({','.join('?' * len(chunk))}) AND state='active'", chunk):
+                rows[int(r["id"])] = r
+        now = time.time()
+        with self.db.tx() as c:
+            cur = c.execute(
+                "INSERT INTO operations(kind, status, title, removal, created_at, finished_at, total, bytes_total) VALUES('cleanup','done',?, 'bin', ?, ?, ?, ?)",
+                (title, now, now, len(rows), sum(int(r["size"] or 0) for r in rows.values())),
+            )
+            op_id = int(cur.lastrowid)
+        removed, skipped = 0, []
+        for mid in media_ids:
+            r = rows.get(mid)
+            if r is None:
+                continue
+            src = r["path"]
+            reason = None
+            if not os.path.exists(lp(src)):
+                reason = "Already gone"
+            elif same_as and mid in same_as:
+                keep = self.db.q1("SELECT path FROM media WHERE id=? AND state='active'", (same_as[mid],))
+                try:
+                    if keep is None or not os.path.exists(lp(keep["path"])) or full_hash(lp(keep["path"])) != full_hash(lp(src)):
+                        reason = "Not an exact copy of the one you kept, so it was kept too."
+                except OSError as e:
+                    reason = f"Couldn't compare it: {e.strerror or e}"
+            target = None
+            if reason is None:
+                try:
+                    target = self._move_to_bin(src, op_id)
+                except OSError as e:
+                    reason = f"Couldn't move it: {e.strerror or e}"
+            with self.db.tx() as c:
+                if target:
+                    c.execute(
+                        "INSERT INTO op_items(op_id, media_id, src, size, src_mtime, state, removed_to) VALUES(?,?,?,?,?,'removed',?)",
+                        (op_id, mid, src, r["size"], r["mtime"], target),
+                    )
+                    c.execute("UPDATE media SET state='binned' WHERE id=?", (mid,))
+                else:
+                    c.execute(
+                        "INSERT INTO op_items(op_id, media_id, src, size, src_mtime, state, error) VALUES(?,?,?,?,?,'kept',?)",
+                        (op_id, mid, src, r["size"], r["mtime"], reason),
+                    )
+            if target:
+                removed += 1
+            else:
+                skipped.append({"src": src, "reason": reason})
+        self.db.x("UPDATE operations SET done=?, failed=? WHERE id=?", (removed, len(skipped), op_id))
+        self._emit(op_id, force=True)
+        self.ctx.events.publish("ops.changed", {"id": op_id})
+        self.ctx.events.publish("library.changed", {"op": op_id})
+        return {"op_id": op_id, "removed": removed, "skipped": skipped}
+
     def _move_to_bin(self, path: str, op_id: int) -> str:
         roots = [volume_root(path)]
         override = self.bin_root_override
@@ -463,9 +528,11 @@ class Ops:
                     continue
                 with self.db.tx() as c:
                     if it["state"] == "removed":
+                        # a cleanup's file comes back as a plain file; a copy's original is a verified source again
+                        kind = c.execute("SELECT kind FROM operations WHERE id=?", (it["op_id"],)).fetchone()
                         c.execute(
-                            "UPDATE op_items SET state='verified', removed_to=NULL, src=?, src_mtime=? WHERE id=?",
-                            (target, _mtime(target), it["id"]),
+                            "UPDATE op_items SET state=?, removed_to=NULL, src=?, src_mtime=? WHERE id=?",
+                            ("restored" if kind and kind["kind"] == "cleanup" else "verified", target, _mtime(target), it["id"]),
                         )
                         if it["media_id"]:
                             c.execute("UPDATE media SET state='active', path=?, name=? WHERE id=?", (target, os.path.basename(target), it["media_id"]))

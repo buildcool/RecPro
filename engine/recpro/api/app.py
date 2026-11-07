@@ -60,6 +60,7 @@ def _optional_route_modules():
         "routes_private",
         "routes_labels",
         "routes_models",
+        "routes_cleanup",
     ]
     mods = []
     for n in names:
