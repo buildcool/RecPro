@@ -4,7 +4,8 @@
 
 Output goes through a pipe in the system code page (no PYTHONIOENCODING), like the app reads
 it; the engine must print its ready line, answer /api/health and /api/models with the token,
-and exit by itself when its stdin closes. Standard library only, so CI runs it with any Python.
+name a town from its bundled place table, and exit by itself when its stdin closes. Standard
+library only, so CI runs it with any Python.
 """
 from __future__ import annotations
 
@@ -76,6 +77,11 @@ def main() -> int:
                     ok = False
         models = get("/api/models")
         print("models:", ", ".join(m["id"] for m in models["models"]), "| device:", json.dumps(models["device"]))
+        # the place table is data inside the package: a build that leaves it out names no places
+        towns = get("/api/places/towns?s=18&w=73&n=19&e=74.5&limit=1")["towns"]
+        print("place table:", towns[0]["name"] if towns else "missing")
+        if not towns or towns[0]["name"] != "Pune":
+            ok = False
     except Exception as e:
         print("API check failed:", e)
         ok = False
