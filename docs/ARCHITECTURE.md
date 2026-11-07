@@ -27,6 +27,10 @@ React 19 + TypeScript, built with Vite and Tailwind CSS 4. Data via TanStack Que
 
 Key pieces: `app/AppShell.tsx` (top bar, sidebar, status bar), `app/CommandPalette.tsx` (Ctrl+K), `features/*` (find and move, review, people, private, file operations), `pages/*`.
 
+**When something fails.** Every screen sits under a route error boundary (`app/ErrorScreens.tsx`): a screen that throws shows "This screen ran into a problem" in its place, with *Try again*, *Go to Home* and details to copy, while the sidebar keeps working; the window itself failing gets the same, full screen. A failed import of a code file (an update left the old version open) asks for a reload instead. Each failure is sent to the engine, which writes it to its log (`POST /api/diagnostics/ui-error`). A query that fails says so once in a toast, except while the engine is restarting (the status bar says so) and for answers screens handle themselves (404, 409, 423). At start-up, half a minute without an answer from the engine shows a message with *Try again* instead of a spinner.
+
+**Accessibility.** Text colours are at least 4.5:1 on every surface in both themes (the dark theme's accent and a `private-strong` token exist for white text on filled colours). Photo tiles are one control each: Enter opens, Space selects, and the label says what it is and when it was taken; the selection circle is a mouse shortcut hidden from screen readers. Page titles are level 1 and sections level 2, there's a *Skip to content* link, the map's dots and zoom buttons are keyboard buttons, and motion follows the system's reduced-motion setting. Checked with axe-core (see [DEVELOPMENT.md](DEVELOPMENT.md#accessibility-check)).
+
 ## Engine (`engine/recpro`)
 
 | Module | Responsibility |

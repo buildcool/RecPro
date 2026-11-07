@@ -154,10 +154,27 @@ LFW labels only the centered face, so a match on a person standing in the backgr
 ## Tests
 
 ```bash
-npm run test:engine        # pytest: file-operation guarantees and more
+npm run test:engine        # pytest: file-operation guarantees, offline, places, trips and more
 npm run typecheck          # UI and desktop TypeScript
-npm run test:ui            # vitest
+npm run test:ui            # vitest: error screens
 ```
+
+### Accessibility check
+
+axe-core runs in the page, from a copy outside the project (the app doesn't depend on it). With the engine and `npm run dev:ui` running:
+
+```bash
+mkdir -p .cache/tmp/axe && cd .cache/tmp/axe && npm pack axe-core@4.13.0 && tar -xzf axe-core-4.13.0.tgz
+```
+
+Then, in the browser's console on a screen of the app:
+
+```js
+eval(await (await fetch('/@fs/D:/Claude/github/RecPro/.cache/tmp/axe/package/axe.min.js')).text());
+(await axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'] } })).violations;
+```
+
+Every screen should return an empty list, in the light and the dark theme.
 
 ## Building the installer
 

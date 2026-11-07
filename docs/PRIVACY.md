@@ -19,7 +19,9 @@ RecPro uses the internet for two things, and *Strict offline* (Settings → Netw
 - **Downloading its AI models**, the first time you set up recognition. You start it, you see the sizes first, and each file is checked against a SHA-256 hash. On a PC with an NVIDIA graphics card, the installed app also offers the **GPU pack** (about 1.2 GB): NVIDIA's CUDA and cuDNN libraries, downloaded from NVIDIA's own packages on PyPI and checked against PyPI's SHA-256.
 - **Checking for updates** (Settings → Updates: *Download for me*, *Ask me first*, the default, or *Off*). A check asks GitHub for RecPro's latest release; GitHub sees the app's version and your IP address. Nothing about your photos, people, text or settings is sent. Updates install only when you click *Restart to update*, or when you next close RecPro after a download.
 
-There is no telemetry, analytics or crash reporting.
+There is no telemetry, analytics or crash reporting. When a screen fails, the error goes to the engine's log on this PC, nowhere else.
+
+A test (`engine/tests/test_offline.py`) refuses every connection and name lookup that isn't this PC while the library is read and every feature is used, and fails if anything tries.
 
 The engine only listens on `127.0.0.1` and requires a secret token that the desktop app creates at every launch, so other programs and websites can't query it.
 

@@ -56,6 +56,9 @@ All notable changes to RecPro. Versions follow [Semantic Versioning](https://sem
 - Your names and answers in a file: export the people you named and the answers you gave, import them on another PC (photos matched by content, not path; answers for photos not read yet apply when they are). Nothing about private photos is exported.
 - XMP sidecars for Lightroom, digiKam and other apps, only when you ask: people, categories and place next to each photo, never for private photos and never over another app's sidecar.
 
+- Error screens: a screen that fails says so in its place, with *Try again*, *Go to Home* and details for a bug report, while the rest of the app keeps working; the failure goes to the engine's log on this PC. Start-up says when the engine isn't answering instead of spinning for ever, and anything that fails to load says so once.
+- Accessibility: every screen passes axe-core's WCAG 2.2 AA checks in the light and the dark theme. Stronger contrast for small grey text and white text on blue and purple, photo tiles that work with a keyboard and screen readers (Enter opens, Space selects, and each says what it is and when it was taken), proper headings, and a *Skip to content* link.
+
 ### Fixed
 - A clean install no longer hangs while preparing photos: SciPy (for the perceptual hash) is loaded at start-up, not first by the quick pass's worker threads, whose load of its BLAS library never finished.
 - New photos no longer land in Private or *Please check* because of a relative score: private content uses SigLIP's absolute probability and NudeNet again (0 of 729 safe photos private, as validated), and stored relative scores are dropped once on upgrade.
