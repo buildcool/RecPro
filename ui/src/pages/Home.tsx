@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Copy, FolderPlus, ImagePlus, MessageCircleQuestion, Undo2, UserRound, Wand2 } from 'lucide-react';
+import { ArrowRight, ArrowRightLeft, Copy, FolderPlus, ImagePlus, MessageCircleQuestion, Sparkles, Undo2, UserRound, Wand2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { Badge, Button, Card, Progress, SectionTitle } from '../components/ui';
@@ -8,7 +8,7 @@ import { ModelSetupCard } from '../features/models/ModelSetup';
 import { get, mediaUrl, post } from '../lib/api';
 import { bytes, eta, num, timeAgo } from '../lib/format';
 import { useLive } from '../lib/live';
-import { useFolders, useOps, useStats } from '../lib/queries';
+import { type CleanupSummary, useCleanupSummary, useFolders, useOps, useStats } from '../lib/queries';
 
 type PersonLite = { id: number; name: string | null; count: number; cover_face_id: number | null };
 
@@ -19,6 +19,7 @@ export function HomePage() {
   const { data: ops } = useOps();
   const nav = useNavigate();
   const people = useQuery({ queryKey: ['people', 'top'], queryFn: () => get<PersonLite[]>('/api/people?named=1&limit=8'), retry: false });
+  const { data: cleanup } = useCleanupSummary();
 
   const stages = status ? Object.entries(status.stages).filter(([, s]) => s.total > 0) : [];
   const busy = stages.some(([, s]) => s.done < s.total);
@@ -129,6 +130,8 @@ export function HomePage() {
           </Card>
         </div>
 
+        {cleanup && <CleanupCard s={cleanup} onOpen={() => nav('/cleanup')} />}
+
         {/* Recent operations */}
         {(ops?.length ?? 0) > 0 && (
           <Card className="p-5">
@@ -139,17 +142,26 @@ export function HomePage() {
                 </Link>
               }
             >
-              Recent copies and moves
+              Recent activity
             </SectionTitle>
             <div className="divide-y divide-line">
               {ops!.slice(0, 4).map((op) => (
                 <div key={op.id} className="flex items-center gap-3 py-2.5 text-[13px]">
-                  <Copy className="size-4 text-fg-3" />
+                  {op.kind === 'cleanup' ? (
+                    <Sparkles className="size-4 text-fg-3" />
+                  ) : op.kind === 'move' ? (
+                    <ArrowRightLeft className="size-4 text-fg-3" />
+                  ) : (
+                    <Copy className="size-4 text-fg-3" />
+                  )}
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{op.title || `${op.kind === 'move' ? 'Moved' : 'Copied'} ${num(op.total)} files`}</div>
                     <div className="truncate text-fg-3">
-                      to {op.dest} · {timeAgo(op.created_at)}
-                      {op.removal === 'bin' ? ' · originals in the bin' : ''}
+                      {op.kind === 'cleanup'
+                        ? `${num(op.total)} ${op.total === 1 ? 'file' : 'files'}${op.counts?.removed ? ' in the RecPro Bin' : ''}`
+                        : `to ${op.dest}`}{' '}
+                      · {timeAgo(op.created_at)}
+                      {op.kind !== 'cleanup' && op.removal === 'bin' ? ' · originals in the bin' : ''}
                     </div>
                   </div>
                   <Badge tone={op.status === 'done' ? 'ok' : op.status === 'failed' ? 'bad' : op.status === 'undone' ? 'neutral' : 'accent'}>{op.status}</Badge>
@@ -160,7 +172,13 @@ export function HomePage() {
                       icon={<Undo2 className="size-3.5" />}
                       onClick={async () => {
                         const r = await post<{ restored: number; copies_binned: number }>(`/api/ops/${op.id}/undo`);
-                        toast.success(r.restored ? `Restored ${num(r.restored)} originals` : `Moved ${num(r.copies_binned)} copies to the bin`);
+                        toast.success(
+                          op.kind === 'cleanup'
+                            ? `Put ${num(r.restored)} back where they were`
+                            : r.restored
+                              ? `Restored ${num(r.restored)} originals`
+                              : `Moved ${num(r.copies_binned)} copies to the bin`,
+                        );
                       }}
                     >
                       Undo
@@ -183,6 +201,35 @@ export function HomePage() {
         )}
       </div>
     </div>
+  );
+}
+
+/** "Free up space": what Clean up found, in a line; hidden while there's nothing to clean. */
+function CleanupCard({ s, onOpen }: { s: CleanupSummary; onOpen: () => void }) {
+  const total = s.total?.bytes ?? 0;
+  if (!total) return null;
+  const n = (v: number | undefined, one: string, many: string) => (v ? `${num(v)} ${v === 1 ? one : many}` : null);
+  const parts = [
+    n(s.exact.files, 'duplicate', 'duplicates'),
+    n(s.copies.files, 'extra copy', 'extra copies'),
+    n(s.bursts.groups, 'set of similar shots', 'sets of similar shots'),
+    n(s.blurry.files, 'blurry photo', 'blurry photos'),
+    n(s.dark.files, 'too dark', 'too dark'),
+    n(s.forwards.files, 'WhatsApp forward', 'WhatsApp forwards'),
+  ].filter(Boolean);
+  return (
+    <Card className="flex flex-wrap items-center gap-4 p-5">
+      <div className="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent-text">
+        <Sparkles className="size-5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="font-semibold">Up to {bytes(total)} you could free</div>
+        <div className="text-[13px] text-fg-2">{parts.join(' · ')}</div>
+      </div>
+      <Button icon={<ArrowRight className="size-4" />} onClick={onOpen}>
+        Clean up
+      </Button>
+    </Card>
   );
 }
 

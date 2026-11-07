@@ -386,13 +386,19 @@ class Ops:
         self.ctx.events.publish("library.changed", {"op": op_id})
         return {"removed": removed, "skipped": skipped}
 
-    def bin_media(self, media_ids: list[int], title: str, same_as: dict[int, int] | None = None) -> dict[str, Any]:
+    def bin_media(
+        self, media_ids: list[int], title: str, same_as: dict[int, int] | None = None, keeps: dict[int, int] | None = None
+    ) -> dict[str, Any]:
         """Cleanup: moves these files straight to the RecPro Bin as one operation in History.
 
         Undo puts them back. same_as maps a file to the copy that stays: it is only removed if both
         files still have exactly the same content (full BLAKE3), so an "exact duplicate" can't be a
-        different file that merely starts and ends alike.
+        different file that merely starts and ends alike. keeps does the same for copies and similar
+        shots, without the content check. Either way a file is only removed while the one that stays
+        is still there and isn't being removed too, so a group is never emptied.
         """
+        media_ids = list(dict.fromkeys(media_ids))
+        removing = set(media_ids)
         from ..library.hashing import full_hash
 
         rows = {}
@@ -414,15 +420,19 @@ class Ops:
                 continue
             src = r["path"]
             reason = None
+            stay = (same_as or {}).get(mid, (keeps or {}).get(mid))
             if not os.path.exists(lp(src)):
                 reason = "Already gone"
-            elif same_as and mid in same_as:
-                keep = self.db.q1("SELECT path FROM media WHERE id=? AND state='active'", (same_as[mid],))
-                try:
-                    if keep is None or not os.path.exists(lp(keep["path"])) or full_hash(lp(keep["path"])) != full_hash(lp(src)):
-                        reason = "Not an exact copy of the one you kept, so it was kept too."
-                except OSError as e:
-                    reason = f"Couldn't compare it: {e.strerror or e}"
+            elif stay is not None:
+                keep = self.db.q1("SELECT path FROM media WHERE id=? AND state='active'", (stay,))
+                if stay in removing or keep is None or not os.path.exists(lp(keep["path"])):
+                    reason = "The one you chose to keep isn't there, so this one was kept."
+                elif same_as and mid in same_as:
+                    try:
+                        if full_hash(lp(keep["path"])) != full_hash(lp(src)):
+                            reason = "Not an exact copy of the one you kept, so it was kept too."
+                    except OSError as e:
+                        reason = f"Couldn't compare it: {e.strerror or e}"
             target = None
             if reason is None:
                 try:
@@ -481,7 +491,10 @@ class Ops:
         removed = self.db.q("SELECT * FROM op_items WHERE op_id=? AND state='removed'", (op_id,))
         if removed:
             res = self.restore_items([r["id"] for r in removed])
-            self.db.x("UPDATE operations SET removal=NULL WHERE id=?", (op_id,))
+            if op["kind"] != "cleanup":
+                self.db.x("UPDATE operations SET removal=NULL WHERE id=?", (op_id,))
+            elif not res["skipped"]:  # nothing was copied, so with every file back it's all undone
+                self.db.x("UPDATE operations SET removal=NULL, status='undone', finished_at=? WHERE id=?", (time.time(), op_id))
             self._emit(op_id, force=True)
             return {"restored": res["restored"], "copies_binned": 0, "skipped": res["skipped"]}
         if op["status"] in ("running", "paused"):

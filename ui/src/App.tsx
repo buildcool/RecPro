@@ -14,6 +14,7 @@ const lazyPage = (name: string, loader: () => Promise<Record<string, React.Compo
 const Home = lazyPage('HomePage', () => import('./pages/Home'));
 const Photos = lazyPage('PhotosPage', () => import('./pages/Photos'));
 const HistoryPage = lazyPage('HistoryPage', () => import('./pages/History'));
+const CleanupPage = lazyPage('CleanupPage', () => import('./pages/Cleanup'));
 const PeoplePage = lazyPage('PeoplePage', () => import('./pages/People'));
 const PersonPage = lazyPage('PersonPage', () => import('./pages/Person'));
 const ReviewPage = lazyPage('ReviewPage', () => import('./pages/Review'));
@@ -78,6 +79,7 @@ const router = createHashRouter([
           { path: '/review', element: <Page><ReviewPage /></Page> },
           { path: '/private', element: <Page><PrivatePage /></Page> },
           { path: '/folders', element: <Page><Folders /></Page> },
+          { path: '/cleanup', element: <Page><CleanupPage /></Page> },
           { path: '/history', element: <Page><HistoryPage /></Page> },
           { path: '/settings', element: <Page><Settings /></Page> },
           { path: '*', element: <Navigate to="/" replace /> },

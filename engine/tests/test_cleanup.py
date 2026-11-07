@@ -29,7 +29,8 @@ def photo(path, seed=1, size=(640, 480), blur=0):
 def test_exact_duplicates_go_to_the_bin_and_undo_brings_them_back(ctx, tmp_path):
     lib = tmp_path / "Lib"
     a = photo(lib / "Trip" / "IMG_1001.jpg", 1)
-    shutil.copy2(a, lib / "Backup" / "IMG_1001.jpg") if (lib / "Backup").mkdir(parents=True) is None else None
+    (lib / "Backup").mkdir()
+    shutil.copy2(a, lib / "Backup" / "IMG_1001.jpg")
     shutil.copy2(a, lib / "Trip" / "IMG_1001 (1).jpg")
     add_and_index(ctx, lib)
     cleanup.forget()
@@ -52,6 +53,44 @@ def test_exact_duplicates_go_to_the_bin_and_undo_brings_them_back(ctx, tmp_path)
     # restored cleanup files are plain files again, not copies the copy flow could remove
     assert db.scalar("SELECT COUNT(*) FROM op_items WHERE op_id=? AND state='restored'", (res["op_id"],)) == 2
     assert ctx.services["ops"].op_dict(res["op_id"])["removable"] == 0
+    assert db.scalar("SELECT status FROM operations WHERE id=?", (res["op_id"],)) == "undone"
+
+
+def test_a_group_is_never_emptied(ctx, tmp_path):
+    lib = tmp_path / "Lib"
+    a = photo(lib / "Camera" / "IMG_3001.jpg", 4, size=(1280, 960))
+    Image.open(a).resize((640, 480), Image.Resampling.LANCZOS).save(lib / "Camera" / "IMG-20240502-WA0001.jpg", quality=70)
+    add_and_index(ctx, lib)
+    cleanup.forget()
+    g = cleanup.listing(ctx, "copies")["groups"][0]
+    keep = next(x for x in g if x["keep"])
+    copy = next(x for x in g if not x["keep"])
+    ops = ctx.services["ops"]
+    # the one to keep is in the same request: the copy stays, so one file of the group is left
+    res = ops.bin_media([keep["id"], copy["id"]], "Cleanup: copies", keeps={copy["id"]: keep["id"]})
+    assert res["removed"] == 1 and "isn't there" in res["skipped"][0]["reason"]
+    assert os.path.exists(copy["path"]) and not os.path.exists(keep["path"])
+    ops.undo(res["op_id"])
+    # the one to keep has gone missing since: the copy stays
+    os.remove(keep["path"])
+    res = ops.bin_media([copy["id"]], "Cleanup: copies", keeps={copy["id"]: keep["id"]})
+    assert res["removed"] == 0 and os.path.exists(copy["path"])
+
+
+def test_a_locked_look_never_reuses_an_unlocked_one(ctx, tmp_path, monkeypatch):
+    from recpro.api import visibility
+
+    lib = tmp_path / "Lib"
+    a = photo(lib / "A" / "x.jpg", 5)
+    shutil.copy2(a, lib / "A" / "x (1).jpg")
+    add_and_index(ctx, lib)
+    ctx.db.x("UPDATE media SET sens_state='private'")
+    cleanup.forget()
+    monkeypatch.setattr(visibility, "private_hidden", lambda c: False)  # unlocked, shown everywhere
+    assert cleanup.summary(ctx)["exact"]["groups"] == 1
+    monkeypatch.setattr(visibility, "private_hidden", lambda c: True)  # locked again, within the minute
+    assert cleanup.summary(ctx)["exact"]["groups"] == 0
+    assert cleanup.listing(ctx, "exact")["groups"] == []
 
 
 def test_a_lookalike_with_a_different_middle_is_never_removed(ctx, tmp_path):
@@ -100,7 +139,7 @@ def test_the_sharpest_shot_of_a_burst_is_kept(ctx, tmp_path):
     t = time.time() - 86400
     ids = {r["name"]: r["id"] for r in db.q("SELECT id, name FROM media")}
     for k, name in enumerate(("IMG_3001.jpg", "IMG_3002.jpg", "IMG_3003.jpg")):
-        db.x("UPDATE media SET taken_at=? WHERE id=?", (t + 5 * k, ids[name]))
+        db.x("UPDATE media SET taken_at=?, taken_src='file' WHERE id=?", (t + 5 * k, ids[name]))
     rng = np.random.default_rng(0)
     v = rng.normal(size=16)
     same = v / np.linalg.norm(v)
@@ -108,9 +147,47 @@ def test_the_sharpest_shot_of_a_burst_is_kept(ctx, tmp_path):
     other /= np.linalg.norm(other)
     ctx.services["semantic_index"].add([(ids["IMG_3001.jpg"], same), (ids["IMG_3002.jpg"], same), (ids["IMG_3003.jpg"], other)])
     cleanup.forget()
+    assert cleanup.listing(ctx, "bursts")["groups"] == [], "files copied together share a modified time, not a moment"
+    db.x("UPDATE media SET taken_src='exif', has_exif_camera=1")  # times from the camera
+    cleanup.forget()
     g = cleanup.listing(ctx, "bursts")["groups"]
     assert len(g) == 1 and {x["name"] for x in g[0]} == {"IMG_3001.jpg", "IMG_3002.jpg"}
     assert next(x for x in g[0] if x["keep"])["name"] == sharp.name
+
+
+def test_blurry_needs_the_pixels_to_agree(ctx, tmp_path):
+    lib = tmp_path / "Lib"
+    photo(lib / "A" / "soft.jpg", 9)
+    photo(lib / "A" / "shaken.jpg", 10, blur=8)
+    photo(lib / "A" / "marked.jpg", 11)
+    add_and_index(ctx, lib)
+    db = ctx.db
+    from recpro.jobs.quality import QualityStage
+
+    QualityStage(ctx).process(db.q("SELECT * FROM media"))
+    ids = {r["name"]: r["id"] for r in db.q("SELECT id, name FROM media")}
+    sharp = {r["name"]: r["sharpness"] for r in db.q("SELECT name, sharpness FROM media")}
+    assert sharp["shaken.jpg"] < cleanup.BLUR_SHARPNESS < sharp["soft.jpg"], sharp
+    lid = ctx.services["labels"].id("quality.blurry")
+    for name, state in (("soft.jpg", "ai"), ("shaken.jpg", "ai"), ("marked.jpg", "confirmed")):
+        db.x("INSERT INTO media_labels(media_id, label_id, score, tier, state, source) VALUES(?,?,0.8,'sure',?,'{}')", (ids[name], lid, state))
+    cleanup.forget()
+    names = {x["name"] for x in cleanup.listing(ctx, "blurry")["items"]}
+    # SigLIP alone isn't enough (soft.jpg is sharp), your own answer is (marked.jpg)
+    assert names == {"shaken.jpg", "marked.jpg"}
+
+
+def test_the_total_counts_a_file_once(ctx, tmp_path):
+    lib = tmp_path / "Lib"
+    a = photo(lib / "Camera" / "IMG_3101.jpg", 12, size=(1280, 960))
+    # a smaller copy that came in through WhatsApp: a copy and a forward at once
+    (lib / "WhatsApp Images").mkdir()
+    Image.open(a).resize((640, 480), Image.Resampling.LANCZOS).save(lib / "WhatsApp Images" / "IMG-20240503-WA0002.jpg", quality=70)
+    add_and_index(ctx, lib)
+    cleanup.forget()
+    s = cleanup.summary(ctx)
+    assert s["copies"]["files"] == 1 and s["forwards"]["files"] == 1
+    assert s["total"] == {"files": 1, "bytes": s["forwards"]["bytes"]}
 
 
 def test_whatsapp_forwards_are_found_by_name_and_folder(ctx, tmp_path):

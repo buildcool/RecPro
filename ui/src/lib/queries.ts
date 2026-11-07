@@ -21,7 +21,7 @@ export const useStats = () => useQuery({ queryKey: ['stats'], queryFn: () => get
 
 export type Op = {
   id: number;
-  kind: 'copy' | 'move';
+  kind: 'copy' | 'move' | 'cleanup';
   status: 'running' | 'paused' | 'done' | 'failed' | 'cancelled' | 'undone';
   title: string | null;
   dest: string;
@@ -42,3 +42,12 @@ export type Op = {
 };
 
 export const useOps = () => useQuery({ queryKey: ['ops'], queryFn: () => get<Op[]>('/api/ops') });
+
+export type CleanupKind = 'exact' | 'copies' | 'bursts' | 'dark' | 'blurry' | 'forwards';
+/** What each kind of cleanup would free: groups (duplicates, copies, similar shots) or single files. */
+export type CleanupSummary = Record<CleanupKind, { groups?: number; files: number; bytes: number; greetings?: number }> & {
+  total: { files: number; bytes: number }; // each file once, even when it's in two lists
+};
+
+export const useCleanupSummary = () =>
+  useQuery({ queryKey: ['cleanup'], queryFn: () => get<CleanupSummary>('/api/cleanup'), staleTime: 30_000, retry: false });

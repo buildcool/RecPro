@@ -15,6 +15,7 @@ import {
   Search,
   Settings as SettingsIcon,
   ShieldCheck,
+  Sparkles,
   Users,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -114,6 +115,7 @@ const NAV = [
   { to: '/review', label: 'Review', icon: MessageCircleQuestion, count: 'review' as const },
   { to: '/private', label: 'Private', icon: Lock, private: true },
   { to: '/folders', label: 'Folders', icon: FolderOpen },
+  { to: '/cleanup', label: 'Clean up', icon: Sparkles },
   { to: '/history', label: 'History and bin', icon: History },
 ];
 

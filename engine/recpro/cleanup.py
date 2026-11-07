@@ -26,6 +26,9 @@ COPY_HAMMING = 6
 COPY_COS = 0.85  # the hash already says "same picture"; SigLIP only rules out flat images
 BURST_GAP_S = 60
 BURST_COS = 0.95  # shots of one moment; different photos of one person at one event sit lower
+# variance of the Laplacian on the thumbnail: badly blurred photos sit far below this, soft-but-fine
+# ones (small, old or video-frame photos SigLIP also calls "blurry") above it
+BLUR_SHARPNESS = 45.0
 WA_NAME = re.compile(r"^(IMG|VID|AUD|PTT|STK)-\d{8}-WA\d{3,}", re.I)
 _cache: dict[str, Any] = {}
 _lock = threading.Lock()
@@ -154,11 +157,16 @@ def copy_groups(c: Context, exclude: set[int]) -> list[list[Any]]:
 
 
 def burst_groups(c: Context, exclude: set[int]) -> list[list[Any]]:
-    """Shots of the same moment: same directory, < 1 minute apart, SigLIP nearly the same."""
+    """Shots of the same moment: camera photos in one directory, < 1 minute apart, SigLIP nearly the same.
+
+    The time has to come from the camera. A file's modified time is reset by copying (a folder copied
+    in one go would look like one long burst), WhatsApp names only give the day, and screenshots of a
+    chat seconds apart aren't shots of one moment.
+    """
     index = c.services.get("semantic_index")
     if index is None:
         return []
-    rows = [r for r in _media(c, "taken_at IS NOT NULL AND kind='image'") if int(r["id"]) not in exclude]
+    rows = [r for r in _media(c, "taken_src='exif' AND has_exif_camera=1 AND kind='image'") if int(r["id"]) not in exclude]
     rows.sort(key=lambda r: (r["folder_id"], r["rel_dir"], r["taken_at"]))
     got, E = index.rows([int(r["id"]) for r in rows])  # type: ignore[attr-defined]
     vec = {int(m): e for m, e in zip(got.tolist(), E)}
@@ -190,7 +198,7 @@ def _labelled(c: Context, keys: tuple[str, ...]) -> list[Any]:
 
     hide = " AND m.sens_state NOT IN ('private','review')" if private_hidden(c) else ""
     return c.db.q(
-        f"""SELECT DISTINCT m.*, ml.score AS lscore FROM media m JOIN media_labels ml ON ml.media_id=m.id JOIN labels l ON l.id=ml.label_id
+        f"""SELECT DISTINCT m.*, ml.score AS lscore, ml.state AS lstate FROM media m JOIN media_labels ml ON ml.media_id=m.id JOIN labels l ON l.id=ml.label_id
             WHERE m.state='active'{hide} AND l.key IN ({','.join('?' * len(keys))}) AND ml.state!='rejected'
             AND (ml.tier='sure' OR ml.state='confirmed') ORDER BY ml.score DESC""",
         keys,
@@ -198,10 +206,17 @@ def _labelled(c: Context, keys: tuple[str, ...]) -> list[Any]:
 
 
 def analyse(c: Context, max_age: float = 60.0) -> dict[str, Any]:
-    """All cleanup groups, cached briefly (the library changes while it's indexed)."""
+    """All cleanup groups, cached briefly (the library changes while it's indexed).
+
+    A cached look is only reused for the same view: what's listed while Private is locked never
+    comes from a look taken while it was open, and a file removed, restored or added starts afresh.
+    """
+    from .api.visibility import private_hidden
+
+    key = (private_hidden(c), c.db.scalar("SELECT COUNT(*) FROM media WHERE state='active'", default=0))
     with _lock:
         hit = _cache.get("all")
-        if hit and time.time() - hit["at"] < max_age:
+        if hit and hit["key"] == key and time.time() - hit["at"] < max_age:
             return hit
         from .jobs.quality import too_dark
 
@@ -214,11 +229,18 @@ def analyse(c: Context, max_age: float = 60.0) -> dict[str, Any]:
         # too dark: a fact from the pixels (SigLIP calls dark photos "blurry" as often as "dark")
         dark = [r for r in _media(c, "kind='image' AND brightness IS NOT NULL") if too_dark(r["brightness"], r["highlights"])]
         dark_ids = {int(r["id"]) for r in dark}
-        blurry = [r for r in _labelled(c, ("quality.blurry", "quality.accidental")) if int(r["id"]) not in dark_ids]
+        found: dict[int, Any] = {}
+        for r in _labelled(c, ("quality.blurry",)):
+            # SigLIP calls small or soft photos blurry too: the pixels have to agree, unless you said so
+            if r["lstate"] == "confirmed" or (r["sharpness"] is not None and r["sharpness"] < BLUR_SHARPNESS):
+                found.setdefault(int(r["id"]), r)
+        for r in _labelled(c, ("quality.accidental",)):
+            found.setdefault(int(r["id"]), r)
+        blurry = [r for i, r in found.items() if i not in dark_ids]
         forwards = [r for r in _media(c, "has_exif_camera=0") if is_forward(r)]
         greet = {int(r["id"]) for r in _labelled(c, ("entertainment.good_morning", "entertainment.meme"))}
         forwards.sort(key=lambda r: (int(r["id"]) not in greet, -(r["taken_at"] or 0)))
-        out = {"at": time.time(), "exact": exact, "copies": copies, "bursts": bursts, "blurry": blurry, "dark": dark,
+        out = {"at": time.time(), "key": key, "exact": exact, "copies": copies, "bursts": bursts, "blurry": blurry, "dark": dark,
                "forwards": forwards, "greetings": greet}
         _cache["all"] = out
         return out
@@ -230,28 +252,36 @@ def forget() -> None:
 
 
 def summary(c: Context) -> dict[str, Any]:
+    """What each kind would free, and in all ("total" counts a file once, say a blurry WhatsApp copy)."""
     a = analyse(c)
+    freeable: dict[int, int] = {}
 
-    def groups(gs: list[list[Any]], kind: str) -> dict[str, Any]:
-        extra = 0
-        files = 0
+    def size(r: Any) -> int:
+        return int(r["size"] or 0)
+
+    def groups(gs: list[list[Any]]) -> dict[str, Any]:
+        extra = files = 0
         for g in gs:
-            files += len(g) - 1
-            sizes = sorted((int(r["size"] or 0) for r in g), reverse=True)
-            extra += sum(sizes[1:]) if kind == "exact" else sum(sizes) - max(sizes)
+            rest = sorted(g, key=size, reverse=True)[1:]  # an estimate: as if the largest stays
+            files += len(rest)
+            extra += sum(size(r) for r in rest)
+            freeable.update((int(r["id"]), size(r)) for r in rest)
         return {"groups": len(gs), "files": files, "bytes": extra}
 
     def flat(rows: list[Any]) -> dict[str, Any]:
-        return {"files": len(rows), "bytes": sum(int(r["size"] or 0) for r in rows)}
+        freeable.update((int(r["id"]), size(r)) for r in rows)
+        return {"files": len(rows), "bytes": sum(size(r) for r in rows)}
 
-    return {
-        "exact": groups(a["exact"], "exact"),
-        "copies": groups(a["copies"], "copies"),
-        "bursts": groups(a["bursts"], "bursts"),
+    out: dict[str, Any] = {
+        "exact": groups(a["exact"]),
+        "copies": groups(a["copies"]),
+        "bursts": groups(a["bursts"]),
         "blurry": flat(a["blurry"]),
         "dark": flat(a["dark"]),
         "forwards": {**flat(a["forwards"]), "greetings": sum(1 for r in a["forwards"] if int(r["id"]) in a["greetings"])},
     }
+    out["total"] = {"files": len(freeable), "bytes": sum(freeable.values())}
+    return out
 
 
 def listing(c: Context, kind: str, offset: int = 0, limit: int = 50) -> dict[str, Any]:

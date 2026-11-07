@@ -17,6 +17,8 @@ class BinRequest(BaseModel):
     title: str = "Cleanup"
     # exact duplicates: file -> the copy that stays (removed only if their full hashes match)
     same_as: dict[int, int] | None = None
+    # copies and similar shots: file -> the one that stays (removed only while that one is there)
+    keeps: dict[int, int] | None = None
 
 
 @router.get("/api/cleanup")
@@ -45,6 +47,6 @@ def to_bin(body: BinRequest, c: Context = Depends(ctx)) -> dict[str, Any]:
     ops = c.services.get("ops")
     if ops is None:
         raise HTTPException(503, "File operations are unavailable")
-    res = ops.bin_media(body.media_ids, body.title.strip()[:120] or "Cleanup", body.same_as)  # type: ignore[attr-defined]
+    res = ops.bin_media(body.media_ids, body.title.strip()[:120] or "Cleanup", body.same_as, body.keeps)  # type: ignore[attr-defined]
     forget()
     return res

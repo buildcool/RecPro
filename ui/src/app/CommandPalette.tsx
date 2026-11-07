@@ -12,6 +12,7 @@ import {
   MessageCircleQuestion,
   Search,
   Settings,
+  Sparkles,
   Tag,
   UserRound,
   Users,
@@ -140,10 +141,11 @@ export function CommandPalette() {
                   { to: '/explore', label: 'Explore', icon: Compass },
                   { to: '/private', label: 'Private', icon: Lock },
                   { to: '/folders', label: 'Folders', icon: FolderOpen },
+                  { to: '/cleanup', label: 'Clean up', icon: Sparkles, keywords: ['duplicates', 'copies', 'similar', 'blurry', 'dark', 'whatsapp', 'forwards', 'free space'] },
                   { to: '/history', label: 'History and bin', icon: History },
                   { to: '/settings', label: 'Settings', icon: Settings },
-                ].map((p) => (
-                  <Command.Item key={p.to} value={`go ${p.label}`} onSelect={() => go(p.to)} className={item}>
+                ].map((p: { to: string; label: string; icon: typeof House; keywords?: string[] }) => (
+                  <Command.Item key={p.to} value={`go ${p.label}`} keywords={p.keywords} onSelect={() => go(p.to)} className={item}>
                     <p.icon className="size-4 text-fg-2" /> {p.label}
                   </Command.Item>
                 ))}

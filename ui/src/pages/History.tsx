@@ -1,6 +1,6 @@
 import * as Tabs from '@radix-ui/react-tabs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArchiveRestore, ArrowRightLeft, Copy, FolderOpen, Pause, Play, RotateCcw, Trash2, Undo2 } from 'lucide-react';
+import { ArchiveRestore, ArrowRightLeft, Copy, FolderOpen, Pause, Play, RotateCcw, Sparkles, Trash2, Undo2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Badge, Button, Card, EmptyState, Modal, PageHeader, Progress } from '../components/ui';
@@ -27,7 +27,7 @@ export function HistoryPage() {
   const binTotal = bin?.reduce((a, b) => a + b.bytes, 0) ?? 0;
   return (
     <div className="h-full overflow-y-auto">
-      <PageHeader title="History and bin" subtitle="Every copy and move, and the originals RecPro moved aside. Everything here can be undone." />
+      <PageHeader title="History and bin" subtitle="Every copy, move and clean-up, and the files RecPro moved aside. Everything here can be undone." />
       <Tabs.Root value={tab} onValueChange={setTab} className="px-6 pb-12">
         <Tabs.List className="mb-4 inline-flex rounded-lg bg-surface-2 p-0.5" aria-label="History or bin">
           {[
@@ -69,37 +69,58 @@ function HistoryList() {
     }
   };
   if (ops && ops.length === 0)
-    return <EmptyState icon={<Copy className="size-6" />} title="Nothing copied yet" body="Copies and moves you make appear here, with undo." />;
+    return <EmptyState icon={<Copy className="size-6" />} title="Nothing here yet" body="Copies, moves and clean-ups you make appear here, with undo." />;
   return (
     <div className="space-y-3">
       {ops?.map((o) => {
         const op = (liveOps[o.id] as unknown as Op | undefined) ?? o;
-        const st = STATUS[op.status];
+        const cleanup = op.kind === 'cleanup';
         const verified = (op.counts?.verified ?? 0) + (op.counts?.identical ?? 0);
         const removedN = op.counts?.removed ?? 0;
+        const st: (typeof STATUS)['done'] =
+          cleanup && op.status === 'done' ? { label: removedN ? 'In the bin' : 'Put back', tone: 'neutral' } : STATUS[op.status];
         const pct = op.bytes_total ? (op.bytes_done / op.bytes_total) * 100 : 0;
         return (
           <Card key={op.id} className="p-4">
             <div className="flex flex-wrap items-start gap-3">
               <div className="flex size-9 items-center justify-center rounded-xl bg-surface-2 text-fg-2">
-                {op.kind === 'move' ? <ArrowRightLeft className="size-4" /> : <Copy className="size-4" />}
+                {cleanup ? <Sparkles className="size-4" /> : op.kind === 'move' ? <ArrowRightLeft className="size-4" /> : <Copy className="size-4" />}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-semibold">{op.title || `${op.kind === 'move' ? 'Moved' : 'Copied'} ${num(op.total)} files`}</span>
                   <Badge tone={st.tone}>{st.label}</Badge>
-                  {op.removal === 'bin' && removedN > 0 && <Badge tone="neutral">Originals in bin</Badge>}
+                  {!cleanup && op.removal === 'bin' && removedN > 0 && <Badge tone="neutral">Originals in bin</Badge>}
                   {op.removal === 'recycle' && <Badge tone="neutral">Originals in Recycle Bin</Badge>}
                   {op.removal === 'keep' && <Badge tone="neutral">Originals kept</Badge>}
                 </div>
-                <div className="mt-0.5 truncate text-[13px] text-fg-2" title={op.dest}>
-                  to {op.dest}
-                </div>
-                <div className="mt-1 text-xs text-fg-3">
-                  {dateTime(op.created_at)} · {num(verified)} verified · {bytes(op.bytes_total)}
-                  {op.counts?.failed ? ` · ${num(op.counts.failed)} failed` : ''}
-                  {op.counts?.skipped ? ` · ${num(op.counts.skipped)} skipped` : ''}
-                </div>
+                {cleanup ? (
+                  <>
+                    <div className="mt-0.5 text-[13px] text-fg-2">
+                      {removedN
+                        ? 'In the RecPro Bin. Undo puts them back where they were.'
+                        : op.counts?.restored
+                          ? 'Put back where they were.'
+                          : 'Nothing was moved.'}
+                    </div>
+                    <div className="mt-1 text-xs text-fg-3">
+                      {dateTime(op.created_at)} · {num(op.total)} {op.total === 1 ? 'file' : 'files'} · {bytes(op.bytes_total)}
+                      {op.counts?.kept ? ` · ${num(op.counts.kept)} kept` : ''}
+                      {op.counts?.restored ? ` · ${num(op.counts.restored)} put back` : ''}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-0.5 truncate text-[13px] text-fg-2" title={op.dest}>
+                      to {op.dest}
+                    </div>
+                    <div className="mt-1 text-xs text-fg-3">
+                      {dateTime(op.created_at)} · {num(verified)} verified · {bytes(op.bytes_total)}
+                      {op.counts?.failed ? ` · ${num(op.counts.failed)} failed` : ''}
+                      {op.counts?.skipped ? ` · ${num(op.counts.skipped)} skipped` : ''}
+                    </div>
+                  </>
+                )}
                 {(op.status === 'running' || op.status === 'paused') && <Progress className="mt-2 max-w-md" value={pct} />}
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -127,13 +148,18 @@ function HistoryList() {
                     Move originals to bin
                   </Button>
                 )}
-                {bridge && (
+                {bridge && !cleanup && (
                   <Button size="sm" variant="ghost" icon={<FolderOpen className="size-3.5" />} onClick={() => bridge!.openPath(op.dest)}>
                     Open
                   </Button>
                 )}
-                {(op.status === 'done' || removedN > 0) && (
-                  <Button size="sm" variant="ghost" icon={<Undo2 className="size-3.5" />} onClick={() => void act(`/api/ops/${op.id}/undo`, removedN ? 'Originals restored' : 'Copies moved to the RecPro Bin')}>
+                {(cleanup ? removedN > 0 : op.status === 'done' || removedN > 0) && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Undo2 className="size-3.5" />}
+                    onClick={() => void act(`/api/ops/${op.id}/undo`, cleanup ? 'Put back where they were' : removedN ? 'Originals restored' : 'Copies moved to the RecPro Bin')}
+                  >
                     Undo
                   </Button>
                 )}
