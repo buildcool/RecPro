@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { Badge, EmptyState, Spinner, TextInput } from '../components/ui';
 import { FlatGrid } from '../features/grid/FlatGrid';
 import { usePrivateUi } from '../features/private/PrivateLock';
+import { SaveSearch, useSavedSearches } from '../features/search/saved';
 import { post } from '../lib/api';
 import { num } from '../lib/format';
 import type { MediaItem } from '../lib/types';
@@ -30,14 +31,17 @@ const MONTH = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July
 export function SearchPage() {
   const [sp, setSp] = useSearchParams();
   const q = sp.get('q') ?? '';
+  const sid = Number(sp.get('s')) || null; // opened from a saved search: its chips as you left them
   const [draft, setDraft] = useState(q);
   const [removed, setRemoved] = useState<Record<string, unknown>>({});
   const nav = useNavigate();
   const ask = usePrivateUi((s) => s.ask);
+  const { data: saved } = useSavedSearches();
+  const opened = saved?.find((s) => s.id === sid && s.q === q) ?? null;
   useEffect(() => {
     setDraft(q);
-    setRemoved({});
-  }, [q]);
+    setRemoved(opened?.overrides ?? {});
+  }, [q, opened?.id]); // not on every change of `opened`: your own chip changes would be undone
 
   const { data, isFetching } = useQuery({
     queryKey: ['search', 'text', q, removed],
@@ -79,16 +83,21 @@ export function SearchPage() {
             e.preventDefault();
             if (draft.trim()) setSp({ q: draft.trim() });
           }}
-          className="relative max-w-3xl"
+          className="relative flex max-w-3xl gap-2"
         >
           <SearchIcon className="pointer-events-none absolute left-3 top-3 size-5 text-fg-3" />
           <TextInput
-            className="h-11 pl-10 text-[15px]"
+            className="h-11 flex-1 pl-10 text-[15px]"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Rohit and Mom at the beach 2023 · laptop on a sofa · happy girls · screenshots of payments"
             autoFocus
           />
+          {q && data && !data.refused && (
+            <div className="flex items-center">
+              <SaveSearch q={q} removed={removed} onSaved={(s) => setSp({ q: s.q, s: String(s.id) })} />
+            </div>
+          )}
         </form>
         {chips.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-2">

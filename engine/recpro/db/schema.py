@@ -260,4 +260,22 @@ MIGRATIONS: list[str] = [
     CREATE INDEX media_city ON media(city_id) WHERE city_id IS NOT NULL;
     CREATE INDEX media_place ON media(place_id) WHERE place_id IS NOT NULL;
     """,
+    # v9 — saved searches; imported answers waiting for their photos to be read
+    """
+    CREATE TABLE saved_searches(
+      id INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      q TEXT NOT NULL,
+      overrides TEXT,  -- JSON: the chips you took off
+      created_at REAL NOT NULL
+    );
+    CREATE TABLE pending_answers(
+      id INTEGER PRIMARY KEY,
+      kind TEXT NOT NULL,  -- face | photo | label
+      hash TEXT NOT NULL,  -- the photo's quick hash
+      data TEXT NOT NULL,  -- JSON
+      created_at REAL NOT NULL
+    );
+    CREATE INDEX pending_answers_hash ON pending_answers(hash);
+    """,
 ]

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Command } from 'cmdk';
 import {
   ArrowRight,
+  Bookmark,
   Compass,
   FolderOpen,
   FolderPlus,
@@ -26,6 +27,7 @@ import { create } from 'zustand';
 import * as DialogP from '@radix-ui/react-dialog';
 import { get, mediaUrl } from '../lib/api';
 import { addFoldersFlow } from '../features/library/addFolders';
+import { savedHref, useSavedSearches } from '../features/search/saved';
 
 export const usePalette = create<{ open: boolean; setOpen: (v: boolean) => void }>((set) => ({
   open: false,
@@ -51,6 +53,7 @@ export function CommandPalette() {
     enabled: open,
     retry: false,
   });
+  const saved = useSavedSearches();
 
   const go = (to: string) => {
     setOpen(false);
@@ -113,6 +116,17 @@ export function CommandPalette() {
                       <Tag className="size-4 text-fg-3" />
                       <span className="flex-1">{l.name}</span>
                       <span className="text-xs text-fg-3">{l.count}</span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+              {(saved.data?.length ?? 0) > 0 && (
+                <Command.Group heading="Saved searches" className="px-1 pb-1 text-xs text-fg-3 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
+                  {saved.data!.map((s) => (
+                    <Command.Item key={s.id} value={`saved ${s.name} ${s.q}`} onSelect={() => go(savedHref(s))} className={item}>
+                      <Bookmark className="size-4 text-fg-3" />
+                      <span className="flex-1">{s.name}</span>
+                      {s.name !== s.q && <span className="truncate text-xs text-fg-3">{s.q}</span>}
                     </Command.Item>
                   ))}
                 </Command.Group>

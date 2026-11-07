@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Compass, MapPin, Plus, Sparkles } from 'lucide-react';
+import { ArrowRight, Bookmark, Compass, MapPin, Plus, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -7,6 +7,7 @@ import { Button, EmptyState, Field, Modal, PageHeader, TextInput } from '../comp
 import { MemoryCard, useMemories } from '../features/memories/memories';
 import { ModelSetupCard } from '../features/models/ModelSetup';
 import type { PlacesResult } from '../features/places/places';
+import { savedHref, useSavedSearches } from '../features/search/saved';
 import { get, mediaUrl, post } from '../lib/api';
 import { num } from '../lib/format';
 
@@ -30,6 +31,7 @@ export function ExplorePage() {
       />
       <div className="space-y-8 px-6 pb-12">
         <ModelSetupCard need="siglip2" />
+        <SavedRow />
         <MemoriesRow />
         <PlacesRow />
         {empty && (
@@ -82,6 +84,30 @@ export function ExplorePage() {
 }
 
 /** The towns with the most photos, and the way to the map. Hidden until a photo has a place. */
+/** Searches you saved, as chips that run them again. Hidden until you save one. */
+function SavedRow() {
+  const { data } = useSavedSearches();
+  if (!data?.length) return null;
+  return (
+    <section>
+      <h2 className="mb-3 text-[15px] font-semibold">Saved searches</h2>
+      <div className="flex flex-wrap gap-2">
+        {data.map((s) => (
+          <Link
+            key={s.id}
+            to={savedHref(s)}
+            title={s.q}
+            className="flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-[13px] transition-colors hover:bg-surface-2"
+          >
+            <Bookmark className="size-3.5 text-accent" />
+            {s.name}
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /** The latest trips and events, and the way to all of them. Hidden until there's one. */
 function MemoriesRow() {
   const { data } = useMemories();

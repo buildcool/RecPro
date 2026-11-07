@@ -1,10 +1,13 @@
-import { Cpu, FolderCog, Info, Lock, Palette, RefreshCw, ScanText, ShieldCheck, SlidersHorizontal, Copy } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Cpu, Download, FileCode, FolderCog, Info, Lock, Palette, RefreshCw, ScanText, ShieldCheck, SlidersHorizontal, Copy, Upload, Users } from 'lucide-react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Button, Card, PageHeader, Segmented, Switch } from '../components/ui';
+import { Button, Card, Modal, PageHeader, Progress, Segmented, Switch } from '../components/ui';
 import { usePrivateUi, usePrivateState } from '../features/private/PrivateLock';
 import { ModelsList } from '../features/models/ModelSetup';
+import { get, post } from '../lib/api';
 import { bridge, type UpdateMode, type UpdateState } from '../lib/bridge';
+import { num } from '../lib/format';
 import { useHealth, useSettings, useUpdateSettings } from '../lib/queries';
 import { setTheme, type ThemePref } from '../lib/theme';
 
@@ -161,6 +164,8 @@ export function SettingsPage() {
           </Row>
         </Section>
 
+        <YourLabelsSection />
+
         <Section icon={<FolderCog className="size-4" />} title="Storage">
           <Row label="RecPro data folder" hint={health?.dataDir}>
             {bridge && (
@@ -277,6 +282,165 @@ function UpdatesSection() {
   );
 }
 
+type Counts = { people: number; faces: number; photos: number; categories: number; answers: number };
+type ImportResult = Partial<Record<
+  'people_added' | 'people_matched' | 'faces_applied' | 'photos_applied' | 'answers_applied' | 'categories_added' | 'waiting' | 'kept_yours' | 'faces_unmatched' | 'categories_unknown',
+  number
+>>;
+type XmpState = { running: boolean; done: number; total: number; written: number; kept_theirs: number; nothing: number; failed: number; finished_at: number | null; error: string | null };
+
+function importSummary(r: ImportResult) {
+  const people = (r.people_added ?? 0) + (r.people_matched ?? 0);
+  const parts = [
+    people ? `${num(people)} ${people === 1 ? 'person' : 'people'}${r.people_added ? ` (${num(r.people_added)} new)` : ''}` : null,
+    r.faces_applied || r.photos_applied ? `${num((r.faces_applied ?? 0) + (r.photos_applied ?? 0))} people answers` : null,
+    r.answers_applied ? `${num(r.answers_applied)} category answers` : null,
+  ].filter(Boolean);
+  const notes = [
+    r.waiting ? `${num(r.waiting)} wait for photos still being read, and apply by themselves` : null,
+    r.kept_yours ? `${num(r.kept_yours)} kept the answer you'd already given here` : null,
+    r.faces_unmatched ? `${num(r.faces_unmatched)} faces weren't found in their photos` : null,
+  ].filter(Boolean);
+  return { title: parts.length ? `Imported ${parts.join(', ')}` : 'Nothing new to import', description: notes.join(' · ') || undefined };
+}
+
+/** Names and answers to a file and back, and XMP sidecars for other apps. */
+function YourLabelsSection() {
+  const qc = useQueryClient();
+  const file = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<'export' | 'import' | null>(null);
+  const [asking, setAsking] = useState(false);
+  const waiting = useQuery({ queryKey: ['answers', 'waiting'], queryFn: () => get<{ waiting: number }>('/api/answers/waiting'), refetchInterval: 15_000 });
+  const xmp = useQuery({
+    queryKey: ['xmp'],
+    queryFn: () => get<XmpState>('/api/xmp'),
+    refetchInterval: (q) => (q.state.data?.running ? 1000 : false),
+  });
+  const x = xmp.data;
+
+  const exportNow = async () => {
+    setBusy('export');
+    try {
+      if (bridge) {
+        const dir = await bridge.pickFolder('Choose where to save your names and answers');
+        if (!dir) return;
+        const r = await post<{ path: string; counts: Counts }>('/api/answers/export', { folder: dir });
+        toast.success(`Saved ${num(r.counts.people)} people and ${num(r.counts.faces + r.counts.photos + r.counts.answers)} answers`, {
+          description: r.path,
+          action: { label: 'Show', onClick: () => bridge!.showInExplorer(r.path) },
+        });
+      } else {
+        const doc = await get<unknown>('/api/answers/export');
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 1)], { type: 'application/json' }));
+        a.download = `recpro-labels-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const importFrom = async (f: File) => {
+    setBusy('import');
+    try {
+      let doc: unknown;
+      try {
+        doc = JSON.parse(await f.text());
+      } catch {
+        throw new Error('That file isn’t a RecPro labels file.');
+      }
+      const s = importSummary(await post<ImportResult>('/api/answers/import', doc));
+      for (const k of ['people', 'person', 'review', 'labels', 'explore', 'answers', 'searches']) qc.invalidateQueries({ queryKey: [k] });
+      toast.success(s.title, { description: s.description, duration: 10_000 });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(null);
+      if (file.current) file.current.value = '';
+    }
+  };
+
+  const startXmp = async () => {
+    setAsking(false);
+    try {
+      await post('/api/xmp');
+      qc.invalidateQueries({ queryKey: ['xmp'] });
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  return (
+    <Section
+      icon={<Users className="size-4" />}
+      title="Your names and answers"
+      description="Take the people you named and the answers you gave to another PC, or keep them as a backup. Photos are matched by their content, not where they are, so it works after folders move."
+    >
+      <Row label="Export to a file" hint="People, the faces and photos you said are them, and your category answers. Nothing about private photos.">
+        <Button size="sm" icon={<Download className="size-4" />} loading={busy === 'export'} onClick={() => void exportNow()}>
+          Export…
+        </Button>
+      </Row>
+      <Row
+        label="Import a file"
+        hint={`Never changes an answer you've already given here.${waiting.data?.waiting ? ` ${num(waiting.data.waiting)} imported answers are waiting for their photos to be read.` : ''}`}
+      >
+        <input ref={file} type="file" accept=".json,application/json" className="hidden" onChange={(e) => e.target.files?.[0] && void importFrom(e.target.files[0])} />
+        <Button size="sm" icon={<Upload className="size-4" />} loading={busy === 'import'} onClick={() => file.current?.click()}>
+          Import…
+        </Button>
+      </Row>
+      <Row
+        label="XMP sidecars for other photo apps"
+        hint={
+          x?.running
+            ? `Writing… ${num(x.done)} of ${num(x.total)} photos looked at`
+            : x?.finished_at
+              ? `Last time: ${num(x.written)} written${x.kept_theirs ? `, ${num(x.kept_theirs)} left alone (another app's)` : ''}${x.failed ? `, ${num(x.failed)} couldn't be written` : ''}.`
+              : 'Writes IMG_1234.jpg.xmp next to each photo with its people, categories and place, for Lightroom, digiKam and others.'
+        }
+      >
+        {x?.running ? (
+          <div className="flex items-center gap-2">
+            <Progress className="w-32" value={x.total ? (x.done / x.total) * 100 : 0} />
+            <Button size="sm" onClick={() => void post('/api/xmp/stop').then(() => qc.invalidateQueries({ queryKey: ['xmp'] }))}>
+              Stop
+            </Button>
+          </div>
+        ) : (
+          <Button size="sm" icon={<FileCode className="size-4" />} onClick={() => setAsking(true)}>
+            Write sidecars…
+          </Button>
+        )}
+      </Row>
+      <Modal
+        open={asking}
+        onOpenChange={setAsking}
+        title="Write XMP sidecars next to your photos?"
+        footer={
+          <>
+            <Button onClick={() => setAsking(false)}>Cancel</Button>
+            <Button variant="primary" onClick={() => void startXmp()}>
+              Write sidecars
+            </Button>
+          </>
+        }
+      >
+        <ul className="list-disc space-y-1.5 pl-5 text-[13px] text-fg-2">
+          <li>For each photo with people, categories or a place, RecPro creates a small file next to it (IMG_1234.jpg.xmp) that other photo apps read.</li>
+          <li>Your photos themselves aren't changed.</li>
+          <li>A sidecar another app made is never overwritten; RecPro only updates its own.</li>
+          <li>Private photos never get one, and private categories and ID documents are never written.</li>
+        </ul>
+      </Modal>
+    </Section>
+  );
+}
+
 function Section({ icon, title, description, children }: { icon: ReactNode; title: string; description?: string; children: ReactNode }) {
   return (
     <Card className="p-5">
@@ -293,9 +457,9 @@ function Section({ icon, title, description, children }: { icon: ReactNode; titl
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 py-3">
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1 basis-64">
         <div className="text-sm font-medium">{label}</div>
-        {hint && <div className="mt-0.5 break-all text-xs text-fg-3">{hint}</div>}
+        {hint && <div className="mt-0.5 break-words text-xs text-fg-3">{hint}</div>}
       </div>
       <div className="shrink-0">{children}</div>
     </div>

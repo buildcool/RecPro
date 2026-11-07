@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import json
+import time
 from typing import Any
 
 import numpy as np
@@ -38,6 +40,57 @@ def universal_search(body: TextSearch, c: Context = Depends(ctx)) -> dict[str, A
     if not body.q.strip():
         raise HTTPException(400, "Type what you're looking for.")
     return run(c, body.q, body.overrides)
+
+
+class SavedSearch(BaseModel):
+    name: str
+    q: str
+    overrides: dict[str, Any] | None = None
+
+
+class SavedRename(BaseModel):
+    name: str
+
+
+def _saved(r: Any) -> dict[str, Any]:
+    return {"id": r["id"], "name": r["name"], "q": r["q"], "overrides": json.loads(r["overrides"]) if r["overrides"] else None,
+            "created_at": r["created_at"]}
+
+
+@router.get("/api/searches")
+def saved_searches(c: Context = Depends(ctx)) -> list[dict[str, Any]]:
+    """Searches you saved; they run again each time, so new photos join them."""
+    return [_saved(r) for r in c.db.q("SELECT * FROM saved_searches ORDER BY name COLLATE NOCASE")]
+
+
+@router.post("/api/searches")
+def save_search(body: SavedSearch, c: Context = Depends(ctx)) -> dict[str, Any]:
+    name, q = body.name.strip()[:80], body.q.strip()
+    if not name or not q:
+        raise HTTPException(400, "Give the search a name.")
+    sid = c.db.x(
+        "INSERT INTO saved_searches(name, q, overrides, created_at) VALUES(?,?,?,?)",
+        (name, q, json.dumps(body.overrides) if body.overrides else None, time.time()),
+    ).lastrowid
+    return _saved(c.db.q1("SELECT * FROM saved_searches WHERE id=?", (sid,)))
+
+
+@router.patch("/api/searches/{sid}")
+def rename_search(sid: int, body: SavedRename, c: Context = Depends(ctx)) -> dict[str, Any]:
+    name = body.name.strip()[:80]
+    if not name:
+        raise HTTPException(400, "Give the search a name.")
+    c.db.x("UPDATE saved_searches SET name=? WHERE id=?", (name, sid))
+    r = c.db.q1("SELECT * FROM saved_searches WHERE id=?", (sid,))
+    if r is None:
+        raise HTTPException(404, "That saved search isn't there any more.")
+    return _saved(r)
+
+
+@router.delete("/api/searches/{sid}")
+def delete_search(sid: int, c: Context = Depends(ctx)) -> dict[str, bool]:
+    c.db.x("DELETE FROM saved_searches WHERE id=?", (sid,))
+    return {"ok": True}
 
 
 @router.get("/api/search/parse")

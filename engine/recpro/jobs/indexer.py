@@ -131,6 +131,8 @@ class Indexer:
                 t0 = time.time()
                 try:
                     st.process(rows)
+                    if st.name in ("quick", "deep", "video"):
+                        self._apply_imported(rows)
                 except Exception:
                     log.exception("stage %s failed on a batch; marking rows so they don't loop", st.name)
                     with self.db.tx() as c:
@@ -146,6 +148,15 @@ class Indexer:
             if not did:
                 self._wake.wait(5.0)
                 self._wake.clear()
+
+    def _apply_imported(self, rows: list) -> None:
+        """Answers imported from a file that were waiting for these photos (or their faces)."""
+        try:
+            from ..labels_io import apply_waiting
+
+            apply_waiting(self.ctx, [int(r["id"]) for r in rows])
+        except Exception:
+            log.exception("imported answers couldn't be applied")
 
     # ---- status -----------------------------------------------------------------
     def _rate(self, name: str) -> float | None:
