@@ -52,7 +52,13 @@ def _people_rows(c: Context, where: str, params: list[Any], limit: int) -> list[
                  WHERE f.person_id=p.id AND f.state IN {MEMBER_SQL} AND m.state='active'{priv}) AS count,
               (SELECT COUNT(*) FROM faces f JOIN media m ON m.id=f.media_id
                  WHERE f.person_id=p.id AND f.state='suggested' AND m.state='active') AS review,
-              (SELECT f.id FROM faces f WHERE f.person_id=p.id AND f.state IN {MEMBER_SQL} ORDER BY (f.id=p.cover_face_id) DESC, f.quality DESC LIMIT 1) AS best_face
+              -- the chosen cover while it's still theirs, else their clearest face. (Two subqueries,
+              -- not one ordered by p.cover_face_id: SQLite before 3.39 can't see the outer table
+              -- from a subquery's ORDER BY, and the installed app can be built with one.)
+              COALESCE(
+                (SELECT f.id FROM faces f WHERE f.id=p.cover_face_id AND f.person_id=p.id AND f.state IN {MEMBER_SQL}),
+                (SELECT f.id FROM faces f WHERE f.person_id=p.id AND f.state IN {MEMBER_SQL} ORDER BY f.quality DESC LIMIT 1)
+              ) AS best_face
            FROM people p WHERE {where} ORDER BY count DESC, p.id LIMIT ?""",
         [*params, limit],
     )
