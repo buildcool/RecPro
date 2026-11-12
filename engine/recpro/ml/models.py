@@ -180,6 +180,69 @@ MODELS: list[ModelSpec] = [
     ),
 ]
 
+# Things and animals with where they are (D-FINE on Objects365; a smaller detector for the fast
+# set), and how each animal looks (DINOv2 base) to tell pets apart. The pet model is the same for
+# both sets, so a pet's photos stay comparable after switching. Files are pinned to a commit of
+# the ONNX conversions and to their SHA-256.
+HF = "https://huggingface.co"
+OBJECT_MODELS: list[ModelSpec] = [
+    ModelSpec(
+        id="objects",
+        name="Things and animals (D-FINE X, Objects365)",
+        purpose="Finds 365 kinds of things and animals in photos, and where they are",
+        license="Apache-2.0",
+        profiles=("best",),
+        approx_size=126_313_084,
+        folder="objects/dfine-x",
+        files=[
+            FileSpec(
+                url=f"{HF}/onnx-community/dfine_x_obj365-ONNX/resolve/8b0ccdfc94d2a405acaaeceade13b6d2b4fccd16/onnx/model_fp16.onnx",
+                dest="objects/dfine-x/detector.onnx",
+                size=126_313_084,
+                sha256="2abdf558041e63785b366b5dcd4e8a541b7d6908fe1c966a1306ec71a7a35ee2",
+            )
+        ],
+        required_files=("detector.onnx",),
+    ),
+    ModelSpec(
+        id="objects-fast",
+        name="Things and animals (D-FINE M, Objects365)",
+        purpose="Smaller, faster detector for things and animals",
+        license="Apache-2.0",
+        profiles=("fast",),
+        approx_size=79_212_285,
+        folder="objects/dfine-m",
+        files=[
+            FileSpec(
+                url=f"{HF}/onnx-community/dfine_m_obj365-ONNX/resolve/f78e69849ffb6dfacbc648b61a11b3af83a06204/onnx/model.onnx",
+                dest="objects/dfine-m/detector.onnx",
+                size=79_212_285,
+                sha256="2fb7d73e2df5be2b1032381d191d6d26d1bca44b23d3eb79af1cbd9e3b19356c",
+            )
+        ],
+        required_files=("detector.onnx",),
+    ),
+    ModelSpec(
+        id="pets",
+        name="Pet recognition (DINOv2 base)",
+        purpose="Tells your pets apart, so you can name them and find each one",
+        license="Apache-2.0",
+        profiles=("best", "fast"),
+        approx_size=346_608_174,
+        folder="pets/dinov2-base",
+        files=[
+            FileSpec(
+                url=f"{HF}/onnx-community/dinov2-base-ONNX/resolve/9a1732c724ef0847dcedf00d3d5a93f61dea0370/onnx/model.onnx",
+                dest="pets/dinov2-base/model.onnx",
+                size=346_608_174,
+                sha256="f16115e628d65b7cc7b1e16c504e2af682169aabf3fff4edfe906118f522e204",
+            )
+        ],
+        required_files=("model.onnx",),
+    ),
+]
+MODELS += OBJECT_MODELS
+
 # Speech is appended to the manifest below, after the image models.
 SPEECH_MODELS: list[ModelSpec] = [
     ModelSpec(

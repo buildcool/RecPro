@@ -12,6 +12,8 @@ from .visibility import private_hidden
 
 router = APIRouter()
 MEMBER_SQL = "('confirmed','auto','cluster')"
+# A pet is a "person" of kind 'pet' whose sightings are animals instead of faces
+TABLE = {"human": "faces", "pet": "animals"}
 
 
 class PersonPatch(BaseModel):
@@ -37,27 +39,35 @@ class AssignBody(BaseModel):
     name: str | None = None
 
 
-def _svc(c: Context):
-    s = c.services.get("people")
+def _svc(c: Context, kind: str = "human"):
+    s = c.services.get("pets" if kind == "pet" else "people")
     if s is None:
-        raise HTTPException(503, "People service unavailable")
+        raise HTTPException(503, "Pets service unavailable" if kind == "pet" else "People service unavailable")
     return s
 
 
-def _people_rows(c: Context, where: str, params: list[Any], limit: int) -> list[dict[str, Any]]:
+def kind_of(c: Context, pid: int) -> str:
+    k = c.db.scalar("SELECT kind FROM people WHERE id=?", (pid,))
+    if k is None:
+        raise HTTPException(404, "Person not found")
+    return str(k)
+
+
+def _people_rows(c: Context, where: str, params: list[Any], limit: int, kind: str = "human") -> list[dict[str, Any]]:
     priv = " AND m.sens_state NOT IN ('private','review')" if private_hidden(c) else ""
+    t = TABLE.get(kind, "faces")
     rows = c.db.q(
-        f"""SELECT p.id, p.name, p.cover_face_id, p.hidden, p.birthdate, p.kind,
-              (SELECT COUNT(DISTINCT f.media_id) FROM faces f JOIN media m ON m.id=f.media_id
+        f"""SELECT p.id, p.name, p.cover_face_id, p.hidden, p.birthdate, p.kind, p.species,
+              (SELECT COUNT(DISTINCT f.media_id) FROM {t} f JOIN media m ON m.id=f.media_id
                  WHERE f.person_id=p.id AND f.state IN {MEMBER_SQL} AND m.state='active'{priv}) AS count,
-              (SELECT COUNT(*) FROM faces f JOIN media m ON m.id=f.media_id
+              (SELECT COUNT(*) FROM {t} f JOIN media m ON m.id=f.media_id
                  WHERE f.person_id=p.id AND f.state='suggested' AND m.state='active') AS review,
               -- the chosen cover while it's still theirs, else their clearest face. (Two subqueries,
               -- not one ordered by p.cover_face_id: SQLite before 3.39 can't see the outer table
               -- from a subquery's ORDER BY, and the installed app can be built with one.)
               COALESCE(
-                (SELECT f.id FROM faces f WHERE f.id=p.cover_face_id AND f.person_id=p.id AND f.state IN {MEMBER_SQL}),
-                (SELECT f.id FROM faces f WHERE f.person_id=p.id AND f.state IN {MEMBER_SQL} ORDER BY f.quality DESC LIMIT 1)
+                (SELECT f.id FROM {t} f WHERE f.id=p.cover_face_id AND f.person_id=p.id AND f.state IN {MEMBER_SQL}),
+                (SELECT f.id FROM {t} f WHERE f.person_id=p.id AND f.state IN {MEMBER_SQL} ORDER BY f.quality DESC LIMIT 1)
               ) AS best_face
            FROM people p WHERE {where} ORDER BY count DESC, p.id LIMIT ?""",
         [*params, limit],
@@ -72,25 +82,45 @@ def _people_rows(c: Context, where: str, params: list[Any], limit: int) -> list[
 
 
 @router.get("/api/people")
-def list_people(named: int | None = None, hidden: int = 0, limit: int = 500, min_count: int = 1, c: Context = Depends(ctx)) -> list[dict[str, Any]]:
-    where = "p.kind='human' AND p.hidden=?"
-    params: list[Any] = [hidden]
+def list_people(
+    named: int | None = None, hidden: int = 0, limit: int = 500, min_count: int = 1, kind: str = "human", c: Context = Depends(ctx)
+) -> list[dict[str, Any]]:
+    """People, or with kind=pet the pets."""
+    if kind not in TABLE:
+        raise HTTPException(400, "kind is human or pet")
+    where = "p.kind=? AND p.hidden=?"
+    params: list[Any] = [kind, hidden]
     if named == 1:
         where += " AND p.name IS NOT NULL"
     elif named == 0:
         where += " AND p.name IS NULL"
-    rows = _people_rows(c, where, params, min(limit, 2000))
+    rows = _people_rows(c, where, params, min(limit, 2000), kind)
     return [r for r in rows if r["count"] >= min_count or (r["name"] and r["review"] > 0)]
 
 
 @router.get("/api/people/{pid}")
 def get_person(pid: int, c: Context = Depends(ctx)) -> dict[str, Any]:
-    rows = _people_rows(c, "p.id=?", [pid], 1)
+    kind = kind_of(c, pid)
+    rows = _people_rows(c, "p.id=?", [pid], 1, kind)
     if not rows:
         raise HTTPException(404, "Person not found")
     p = rows[0]
-    svc = _svc(c)
+    svc = _svc(c, kind)
     p["coverage"] = svc.coverage(pid)
+    if kind == "pet":
+        # the people most often in a pet's photos
+        p["companions"] = [
+            dict(r)
+            for r in c.db.q(
+                f"""SELECT f.person_id AS id, pp.name, COUNT(DISTINCT f.media_id) AS n,
+                      (SELECT f2.id FROM faces f2 WHERE f2.person_id=f.person_id AND f2.state IN {MEMBER_SQL} ORDER BY f2.quality DESC LIMIT 1) AS face_id
+                   FROM animals a JOIN faces f ON f.media_id=a.media_id JOIN people pp ON pp.id=f.person_id
+                   WHERE a.person_id=? AND a.state IN {MEMBER_SQL} AND f.state IN {MEMBER_SQL} AND pp.name IS NOT NULL AND pp.hidden=0
+                   GROUP BY f.person_id ORDER BY n DESC LIMIT 8""",
+                (pid,),
+            )
+        ]
+        return p
     p["companions"] = [
         dict(r)
         for r in c.db.q(
@@ -108,9 +138,7 @@ def get_person(pid: int, c: Context = Depends(ctx)) -> dict[str, Any]:
 
 @router.patch("/api/people/{pid}")
 def patch_person(pid: int, body: PersonPatch, c: Context = Depends(ctx)) -> Any:
-    svc = _svc(c)
-    if c.db.q1("SELECT id FROM people WHERE id=?", (pid,)) is None:
-        raise HTTPException(404, "Person not found")
+    svc = _svc(c, kind_of(c, pid))
     if body.name is not None and body.name.strip():
         other = svc.find_by_name(body.name, exclude=pid)
         if other is not None:
@@ -150,13 +178,18 @@ def create_person(body: PersonCreate, c: Context = Depends(ctx)) -> dict[str, An
 
 @router.post("/api/people/{pid}/merge")
 def merge_person(pid: int, body: MergeBody, c: Context = Depends(ctx)) -> dict[str, Any]:
-    _svc(c).merge(pid, body.into)
+    kind = kind_of(c, pid)
+    if kind_of(c, body.into) != kind:
+        raise HTTPException(400, "A pet and a person can't be merged.")
+    _svc(c, kind).merge(pid, body.into)
     return {"id": body.into}
 
 
 @router.get("/api/people/{pid}/faces")
 def person_faces(pid: int, state: str | None = None, limit: int = 200, c: Context = Depends(ctx)) -> list[dict[str, Any]]:
-    q = "SELECT f.id, f.media_id, f.state, f.score, f.quality FROM faces f JOIN media m ON m.id=f.media_id WHERE f.person_id=? AND m.state='active'"
+    """A person's faces, or a pet's animals."""
+    t = TABLE[kind_of(c, pid)]
+    q = f"SELECT f.id, f.media_id, f.state, f.score, f.quality FROM {t} f JOIN media m ON m.id=f.media_id WHERE f.person_id=? AND m.state='active'"
     params: list[Any] = [pid]
     if state:
         q += " AND f.state=?"
@@ -186,3 +219,34 @@ def not_person(face_id: int, body: AssignBody, c: Context = Depends(ctx)) -> dic
     if body.person_id is None:
         raise HTTPException(400, "person_id is required")
     return _svc(c).answer(body.person_id, [], [face_id])
+
+
+@router.post("/api/animals/{animal_id}/assign")
+def assign_animal(animal_id: int, body: AssignBody, c: Context = Depends(ctx)) -> dict[str, Any]:
+    """This animal is that pet (or a new pet with this name)."""
+    svc = _svc(c, "pet")
+    old = c.db.q1("SELECT person_id, state FROM animals WHERE id=?", (animal_id,))
+    if old is None:
+        raise HTTPException(404, "Not found")
+    pid = body.person_id
+    if pid is None:
+        if not body.name or not body.name.strip():
+            raise HTTPException(400, "Choose a pet or enter a name.")
+        existing = svc.find_by_name(body.name)
+        if existing is None:
+            if old["person_id"] and old["state"] in ("confirmed", "auto", "suggested"):
+                svc.answer(old["person_id"], [], [animal_id])
+            return {"person_id": svc.create_person(body.name, [animal_id]), "settled": 0, "remaining": 0}
+        pid = existing["id"]
+    elif kind_of(c, pid) != "pet":
+        raise HTTPException(400, "That's a person, not a pet.")
+    if old["person_id"] and old["person_id"] != pid and old["state"] in ("confirmed", "auto", "suggested"):
+        svc.answer(old["person_id"], [], [animal_id])
+    return {"person_id": pid, **svc.answer(pid, [animal_id], [])}
+
+
+@router.post("/api/animals/{animal_id}/not")
+def not_pet(animal_id: int, body: AssignBody, c: Context = Depends(ctx)) -> dict[str, Any]:
+    if body.person_id is None:
+        raise HTTPException(400, "person_id is required")
+    return _svc(c, "pet").answer(body.person_id, [], [animal_id])

@@ -1,4 +1,4 @@
-"""In-memory index of face embeddings for fast matching (float16, growable)."""
+"""In-memory index of face (or animal) embeddings for fast matching (float16, growable)."""
 from __future__ import annotations
 
 import threading
@@ -9,14 +9,15 @@ DIM = 512
 
 
 class FaceIndex:
-    def __init__(self) -> None:
+    def __init__(self, dim: int = DIM) -> None:
+        self.dim = dim
         self._lock = threading.RLock()
         self._cap = 0
         self._n = 0
         self.ids = np.zeros(0, np.int64)
         self.media = np.zeros(0, np.int64)
         self.quality = np.zeros(0, np.float32)
-        self.emb = np.zeros((0, DIM), np.float16)
+        self.emb = np.zeros((0, dim), np.float16)
         self.valid = np.zeros(0, bool)
         self.pos: dict[int, int] = {}
 
@@ -31,7 +32,7 @@ class FaceIndex:
             ("ids", (cap,), np.int64),
             ("media", (cap,), np.int64),
             ("quality", (cap,), np.float32),
-            ("emb", (cap, DIM), np.float16),
+            ("emb", (cap, self.dim), np.float16),
             ("valid", (cap,), bool),
         ):
             new = np.zeros(shape, dt)
@@ -80,7 +81,7 @@ class FaceIndex:
         """float32 vectors for face ids (missing ids give zero rows)."""
         with self._lock:
             idx = [self.pos.get(int(i), -1) for i in ids]
-            out = np.zeros((len(idx), DIM), np.float32)
+            out = np.zeros((len(idx), self.dim), np.float32)
             have = [k for k, p in enumerate(idx) if p >= 0]
             if have:
                 out[have] = self.emb[[idx[k] for k in have]].astype(np.float32)
@@ -114,7 +115,7 @@ class FaceIndex:
         with self._lock:
             rows = [(int(f), self.pos[int(f)]) for f in face_ids if int(f) in self.pos]
             if not rows:
-                return np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros((0, DIM), np.float32)
+                return np.zeros(0, np.int64), np.zeros(0, np.int64), np.zeros((0, self.dim), np.float32)
             fids = np.array([r[0] for r in rows], np.int64)
             ps = np.array([r[1] for r in rows], np.int64)
             return fids, self.media[ps].copy(), self.emb[ps].astype(np.float32)

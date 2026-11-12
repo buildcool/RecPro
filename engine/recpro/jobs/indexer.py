@@ -49,6 +49,7 @@ class Indexer:
     # ---- control ------------------------------------------------------------
     def start(self) -> None:
         from .deep import DeepStage
+        from .objects import ObjectsStage
         from .places import PlacesStage
         from .quality import QualityStage
         from .quick import QuickStage
@@ -59,9 +60,9 @@ class Indexer:
         from .video import VideoStage
 
         # Order = priority: thumbnails first so the gallery fills fast, the private check before
-        # anything is shown unblurred, then faces, understanding, reading text, whole videos, and
-        # last (slowest) what is said in them.
-        defaults = [QuickStage(self.ctx), SensStage(self.ctx), DeepStage(self.ctx), SemanticStage(self.ctx), TextStage(self.ctx),
+        # anything is shown unblurred, then faces, understanding, things and pets, reading text,
+        # whole videos, and last (slowest) what is said in them.
+        defaults = [QuickStage(self.ctx), SensStage(self.ctx), DeepStage(self.ctx), SemanticStage(self.ctx), ObjectsStage(self.ctx), TextStage(self.ctx),
                     QualityStage(self.ctx), PlacesStage(self.ctx), VideoStage(self.ctx), SpeechStage(self.ctx)]
         names = {s.name for s in self.stages}
         for st in reversed(defaults):

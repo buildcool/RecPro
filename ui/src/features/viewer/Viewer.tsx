@@ -8,6 +8,7 @@ import { bridge } from '../../lib/bridge';
 import { bytes, clock, dateTime, duration } from '../../lib/format';
 import { useSelection } from '../../lib/selection';
 import type { MediaDetail } from '../../lib/types';
+import { speciesName } from '../../lib/people';
 import { useCopyFlow } from '../ops/CopyFlow';
 import { useViewer } from './viewerStore';
 
@@ -186,6 +187,28 @@ export function Viewer() {
                   </span>
                 ))}
               </div>
+            </div>
+          )}
+          {(d.animals?.length ?? 0) > 0 && (
+            <div className="mt-5">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-white/50">Pets</div>
+              <div className="flex flex-wrap gap-2">
+                {d.animals!.map((a) => (
+                  <span key={a.id} className="flex items-center gap-2 rounded-full bg-white/10 py-1 pl-1 pr-3 text-xs">
+                    <img src={mediaUrl(`media/animal/${a.id}?size=64`)} alt="" className="size-6 rounded-full object-cover" />
+                    {a.person_name ?? speciesName(a.species)}
+                    {a.state === 'suggested' && <span className="text-[#e5a94a]">?</span>}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {(d.things?.length ?? 0) > 0 && (
+            <div className="mt-5">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-white/50">Things</div>
+              <p className="text-xs text-white/75">
+                {d.things!.map((t) => (t.count > 1 ? `${t.name} (${t.count})` : t.name)).join(' · ')}
+              </p>
             </div>
           )}
           {d.labels.length > 0 && (

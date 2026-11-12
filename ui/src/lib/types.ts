@@ -72,6 +72,8 @@ export type MediaDetail = {
   state: string;
   sens_state: string;
   faces: FaceBox[];
+  animals?: AnimalBox[]; // dogs, cats, rabbits and parrots, and which pet each is
+  things?: { name: string; score: number; count: number }[]; // what the object detector saw
   labels: MediaLabel[];
   text?: string | null;
   label_spans?: { label_id: number; name: string; start_ms: number; end_ms: number }[];
@@ -93,6 +95,19 @@ export type FaceBox = {
   male: number | null;
   emotion: string | null;
   spans?: { start_ms: number; end_ms: number }[]; // videos: when this person is on screen
+};
+
+export type AnimalBox = {
+  id: number;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  species: string;
+  person_id: number | null; // the pet
+  person_name: string | null;
+  state: string;
+  score: number | null;
 };
 
 export type MediaLabel = {

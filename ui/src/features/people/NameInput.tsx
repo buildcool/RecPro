@@ -1,24 +1,28 @@
 import { clsx } from 'clsx';
 import { Check } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
-import { useNamedPeople } from '../../lib/people';
+import { type Kind, useNamedPeople, useNamedPets } from '../../lib/people';
 import { FaceAvatar } from './FaceAvatar';
 
-/** Text input that suggests existing names; picking one means "same person". */
+/** Text input that suggests existing names; picking one means "same person" (or with kind="pet", same pet). */
 export function NameInput({
   onSubmit,
   placeholder = 'Add a name',
   autoFocus,
   initial = '',
   className,
+  kind = 'human',
 }: {
   onSubmit: (value: { name: string; personId?: number }) => void;
   placeholder?: string;
   autoFocus?: boolean;
   initial?: string;
   className?: string;
+  kind?: Kind;
 }) {
-  const { data: people } = useNamedPeople();
+  const humans = useNamedPeople();
+  const pets = useNamedPets();
+  const people = (kind === 'pet' ? pets : humans).data;
   const [v, setV] = useState(initial);
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
@@ -76,7 +80,9 @@ export function NameInput({
             className={clsx('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm', hi === 0 && 'bg-surface-2')}
           >
             <Check className="size-4 text-accent" />
-            {matches.some((m) => m.name?.toLowerCase() === v.trim().toLowerCase()) ? `Use “${v.trim()}”` : `New person “${v.trim()}”`}
+            {matches.some((m) => m.name?.toLowerCase() === v.trim().toLowerCase())
+              ? `Use “${v.trim()}”`
+              : `${kind === 'pet' ? 'New pet' : 'New person'} “${v.trim()}”`}
           </button>
           {matches.map((p, i) => (
             <button
@@ -86,7 +92,7 @@ export function NameInput({
               onClick={() => submit(p.name!, p.id)}
               className={clsx('flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm', hi === i + 1 && 'bg-surface-2')}
             >
-              <FaceAvatar faceId={p.cover_face_id} size={22} />
+              <FaceAvatar faceId={p.cover_face_id} size={22} kind={kind} />
               <span className="flex-1">{p.name}</span>
               <span className="text-xs text-fg-3">{p.count}</span>
             </button>

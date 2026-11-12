@@ -7,8 +7,9 @@ from PIL import Image
 from .imaging import PREVIEW_MAX, open_image, shard, video_frame
 
 
-def crop_face(ctx, f: Any, size: int) -> Image.Image:
-    """Square crop around a face box (normalized coords) with a comfortable margin."""
+def crop_face(ctx, f: Any, size: int, pad: float = 1.6, lift: float = 0.05) -> Image.Image:
+    """Square crop around a face box (normalized coords) with a comfortable margin. Animals use a
+    smaller margin and no lift (the margin above a face leaves room for hair)."""
     if f["frame_ms"] is not None and f["kind"] == "video":
         img = video_frame(f["path"], f["frame_ms"] / 1000.0, max_side=1280)
     else:
@@ -21,9 +22,9 @@ def crop_face(ctx, f: Any, size: int) -> Image.Image:
     W, H = img.size
     x1, y1, x2, y2 = f["x1"] * W, f["y1"] * H, f["x2"] * W, f["y2"] * H
     cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-    side = max(x2 - x1, y2 - y1) * 1.6
+    side = max(x2 - x1, y2 - y1) * pad
     side = max(side, 24)
-    left, top = cx - side / 2, cy - side / 2 - side * 0.05
+    left, top = cx - side / 2, cy - side / 2 - side * lift
     box = (int(round(left)), int(round(top)), int(round(left + side)), int(round(top + side)))
     crop = img.crop(box)  # PIL pads out-of-bounds areas with black
     return crop.resize((size, size), Image.Resampling.LANCZOS)

@@ -64,6 +64,8 @@ def _ort():
             if _ort_module is None:
                 import onnxruntime as ort
 
+                # errors only: some models (D-FINE) make CUDA print a warning on every run
+                ort.set_default_logger_severity(3)
                 _ort_module = ort
     return _ort_module
 

@@ -10,7 +10,7 @@ import { NameInput } from '../features/people/NameInput';
 import { namePerson } from '../features/people/actions';
 import { get, patch } from '../lib/api';
 import { num } from '../lib/format';
-import type { PersonDetail } from '../lib/people';
+import { type PersonDetail, speciesName } from '../lib/people';
 
 export function PersonPage() {
   const { id } = useParams();
@@ -26,14 +26,15 @@ export function PersonPage() {
         <ArrowLeft className="size-4" /> People
       </Link>
       <div className="flex flex-wrap items-center gap-5">
-        <FaceAvatar faceId={p.cover_face_id} size={96} />
+        <FaceAvatar faceId={p.cover_face_id} size={96} kind={p.kind} />
         <div className="min-w-0 flex-1">
           {editing || !p.name ? (
             <div className="max-w-xs">
               <NameInput
                 autoFocus
                 initial={p.name ?? ''}
-                placeholder="Who is this?"
+                kind={p.kind}
+                placeholder={p.kind === 'pet' ? "What's this pet called?" : 'Who is this?'}
                 onSubmit={async ({ name, personId }) => {
                   const newId = await namePerson(pid, name, personId);
                   setEditing(false);
@@ -50,11 +51,12 @@ export function PersonPage() {
             </button>
           )}
           <div className="mt-1 text-sm text-fg-2">
-            {num(p.count)} photos and videos
+            {p.kind === 'pet' && `${speciesName(p.species)} · `}
+            {num(p.count)} {p.kind === 'pet' ? 'photos' : 'photos and videos'}
             {p.review > 0 && ` · ${num(p.review)} to check`}
           </div>
           {p.name && (
-            <Tip label="How many of this person's photos RecPro estimates it has found. Answering the questions raises it.">
+            <Tip label={`How many of ${p.kind === 'pet' ? "this pet's" : "this person's"} photos RecPro estimates it has found. Answering the questions raises it.`}>
               <div className="mt-2 flex max-w-sm items-center gap-3">
                 <Progress value={p.coverage.percent} tone={p.coverage.percent >= 97 ? 'ok' : 'accent'} />
                 <span className="shrink-0 text-xs text-fg-2">≈ {p.coverage.percent.toFixed(0)}% found</span>
@@ -64,7 +66,10 @@ export function PersonPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {p.review > 0 && (
-            <Button icon={<MessageCircleQuestion className="size-4" />} onClick={() => nav(`/review?person=${pid}`)}>
+            <Button
+              icon={<MessageCircleQuestion className="size-4" />}
+              onClick={() => nav(p.kind === 'pet' ? `/review?tab=pets&person=${pid}` : `/review?person=${pid}`)}
+            >
               Check {num(p.review)}
             </Button>
           )}
@@ -78,7 +83,7 @@ export function PersonPage() {
             icon={<EyeOff className="size-4" />}
             onClick={async () => {
               await patch(`/api/people/${pid}`, { hidden: true });
-              toast.success('Hidden from People', { description: 'Their photos stay in your library.' });
+              toast.success(p.kind === 'pet' ? 'Hidden from Pets' : 'Hidden from People', { description: 'Their photos stay in your library.' });
               qc.invalidateQueries({ queryKey: ['people'] });
               nav('/people');
             }}

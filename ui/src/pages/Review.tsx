@@ -13,7 +13,7 @@ import { useViewer } from '../features/viewer/viewerStore';
 import { SensitiveReview } from '../features/private/SensitiveReview';
 import { get, mediaUrl, post } from '../lib/api';
 import { num } from '../lib/format';
-import { type Brief, type ReviewFaces, useReviewCounts } from '../lib/people';
+import { type Brief, type Kind, type ReviewFaces, useReviewCounts } from '../lib/people';
 import type { MediaItem } from '../lib/types';
 
 export function ReviewPage() {
@@ -25,6 +25,7 @@ export function ReviewPage() {
     ['merge', 'Same person?', counts?.merge],
     ['name', 'Who is this?', counts?.name],
     ['hidden', 'Face hidden?', undefined],
+    ['pets', 'Pets', counts ? (counts.pets ?? 0) + (counts.pet_name ?? 0) + (counts.pet_merge ?? 0) : undefined],
     ['private', 'Private', counts?.sensitive],
   ];
   return (
@@ -47,7 +48,7 @@ export function ReviewPage() {
           ))}
         </Tabs.List>
         <Tabs.Content value="faces">
-          <FaceQuestions initialPerson={sp.get('person') ? Number(sp.get('person')) : undefined} />
+          <FaceQuestions initialPerson={sp.get('tab') !== 'pets' && sp.get('person') ? Number(sp.get('person')) : undefined} />
         </Tabs.Content>
         <Tabs.Content value="merge">
           <MergeQuestions />
@@ -58,6 +59,11 @@ export function ReviewPage() {
         <Tabs.Content value="hidden">
           <HiddenQuestions initialPerson={sp.get('person') ? Number(sp.get('person')) : undefined} />
         </Tabs.Content>
+        <Tabs.Content value="pets" className="space-y-10">
+          <FaceQuestions kind="pet" initialPerson={sp.get('tab') === 'pets' && sp.get('person') ? Number(sp.get('person')) : undefined} />
+          <NameQuestions kind="pet" quiet />
+          <MergeQuestions kind="pet" quiet />
+        </Tabs.Content>
         <Tabs.Content value="private">
           <SensitiveReview />
         </Tabs.Content>
@@ -67,12 +73,13 @@ export function ReviewPage() {
 }
 
 // ---------------------------------------------------------------------------- Is this X?
-function FaceQuestions({ initialPerson }: { initialPerson?: number }) {
+function FaceQuestions({ initialPerson, kind = 'human' }: { initialPerson?: number; kind?: Kind }) {
   const qc = useQueryClient();
   const [personId, setPersonId] = useState<number | undefined>(initialPerson);
+  const pet = kind === 'pet';
   const { data, isLoading } = useQuery({
-    queryKey: ['review', 'faces', personId ?? 'auto'],
-    queryFn: () => get<ReviewFaces>(`/api/review/faces?limit=12${personId ? `&person_id=${personId}` : ''}`),
+    queryKey: ['review', 'faces', kind, personId ?? 'auto'],
+    queryFn: () => get<ReviewFaces>(`/api/review/faces?limit=12&kind=${kind}${personId ? `&person_id=${personId}` : ''}`),
   });
   const [ticked, setTicked] = useState<Set<number>>(new Set());
   const [focus, setFocus] = useState(0);
@@ -145,8 +152,8 @@ function FaceQuestions({ initialPerson }: { initialPerson?: number }) {
     return (
       <EmptyState
         icon={<CheckCircle2 className="size-6 text-ok" />}
-        title="Nothing to check right now"
-        body="When RecPro finds a face that might be someone you named, it asks here."
+        title={pet ? 'No pets to check right now' : 'Nothing to check right now'}
+        body={pet ? 'When RecPro finds an animal that might be a pet you named, it asks here.' : 'When RecPro finds a face that might be someone you named, it asks here.'}
       />
     );
 
@@ -158,7 +165,7 @@ function FaceQuestions({ initialPerson }: { initialPerson?: number }) {
           Known:
           <span className="flex -space-x-2">
             {data.known.slice(0, 4).map((f) => (
-              <FaceAvatar key={f} faceId={f} size={34} ring />
+              <FaceAvatar key={f} faceId={f} size={34} ring kind={kind} />
             ))}
           </span>
         </div>
@@ -183,7 +190,12 @@ function FaceQuestions({ initialPerson }: { initialPerson?: number }) {
                 focus === i && 'ring-2 ring-accent/40',
               )}
             >
-              <img src={mediaUrl(`media/face/${it.face_id}?size=256`)} alt="" className={clsx('aspect-square w-full rounded-xl object-cover', it.private && 'blur-private')} draggable={false} />
+              <img
+                src={mediaUrl(`media/${pet ? 'animal' : 'face'}/${it.face_id}?size=256`)}
+                alt=""
+                className={clsx('aspect-square w-full rounded-xl object-cover', it.private && 'blur-private')}
+                draggable={false}
+              />
               <div className="mt-2 flex items-center justify-between gap-2 text-xs">
                 <span className={clsx('font-medium', it.probability >= 0.5 ? 'text-fg' : 'text-fg-3')}>{Math.round(it.probability * 100)}% likely</span>
                 <button
@@ -217,7 +229,7 @@ function FaceQuestions({ initialPerson }: { initialPerson?: number }) {
           None of these
         </Button>
         <Button variant="ghost" icon={<SkipForward className="size-4" />} onClick={() => setPersonId(undefined)}>
-          Someone else
+          {pet ? 'Another pet' : 'Someone else'}
         </Button>
         <Button variant="ghost" icon={<Undo2 className="size-4" />} onClick={() => void undo()}>
           Undo
@@ -238,14 +250,20 @@ function toggle(s: Set<number>, id: number) {
 }
 
 // ---------------------------------------------------------------------------- Same person?
-function MergeQuestions() {
+function MergeQuestions({ kind = 'human', quiet }: { kind?: Kind; quiet?: boolean }) {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ['review', 'merge'], queryFn: () => get<{ similarity: number; a: Brief; b: Brief }[]>('/api/review/merge') });
+  const pet = kind === 'pet';
+  const { data } = useQuery({
+    queryKey: ['review', 'merge', kind],
+    queryFn: () => get<{ similarity: number; a: Brief; b: Brief }[]>(`/api/review/merge?kind=${kind}`),
+  });
   if (!data || data.length === 0)
-    return <EmptyState icon={<CheckCircle2 className="size-6 text-ok" />} title="No look-alikes to compare" body="When two groups might be the same person, RecPro asks here." />;
+    return quiet ? null : (
+      <EmptyState icon={<CheckCircle2 className="size-6 text-ok" />} title="No look-alikes to compare" body="When two groups might be the same person, RecPro asks here." />
+    );
   const answer = async (a: number, b: number, same: boolean) => {
     await post('/api/review/merge/answer', { a, b, same });
-    if (same) toast.success('Merged into one person');
+    if (same) toast.success(pet ? 'Merged into one pet' : 'Merged into one person');
     qc.invalidateQueries({ queryKey: ['review'] });
     qc.invalidateQueries({ queryKey: ['people'] });
   };
@@ -253,14 +271,14 @@ function MergeQuestions() {
     <div className="max-w-4xl space-y-4">
       {data.map((pair) => (
         <div key={`${pair.a.id}-${pair.b.id}`} className="rounded-2xl border border-line bg-surface p-4">
-          <div className="mb-3 text-[15px] font-semibold">Same person?</div>
+          <div className="mb-3 text-[15px] font-semibold">{pet ? 'Same pet?' : 'Same person?'}</div>
           <div className="grid grid-cols-2 gap-4">
             {[pair.a, pair.b].map((p) => (
               <div key={p.id} className="rounded-xl bg-surface-2 p-3">
                 <div className="mb-2 text-sm font-medium">{p.name ?? 'Unnamed'} <span className="text-fg-3">· {num(p.count)} photos</span></div>
                 <div className="flex gap-2">
                   {p.faces.slice(0, 4).map((f) => (
-                    <FaceAvatar key={f} faceId={f} size={64} />
+                    <FaceAvatar key={f} faceId={f} size={64} kind={kind} />
                   ))}
                 </div>
               </div>
@@ -268,9 +286,9 @@ function MergeQuestions() {
           </div>
           <div className="mt-3 flex gap-2">
             <Button variant="primary" onClick={() => void answer(pair.a.id, pair.b.id, true)}>
-              Yes, same person
+              {pet ? 'Yes, same pet' : 'Yes, same person'}
             </Button>
-            <Button onClick={() => void answer(pair.a.id, pair.b.id, false)}>No, different people</Button>
+            <Button onClick={() => void answer(pair.a.id, pair.b.id, false)}>{pet ? 'No, different pets' : 'No, different people'}</Button>
           </div>
         </div>
       ))}
@@ -279,11 +297,12 @@ function MergeQuestions() {
 }
 
 // ---------------------------------------------------------------------------- Who is this?
-function NameQuestions() {
+function NameQuestions({ kind = 'human', quiet }: { kind?: Kind; quiet?: boolean }) {
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ['review', 'name'], queryFn: () => get<Brief[]>('/api/review/name') });
+  const pet = kind === 'pet';
+  const { data } = useQuery({ queryKey: ['review', 'name', kind], queryFn: () => get<Brief[]>(`/api/review/name?kind=${kind}`) });
   if (!data || data.length === 0)
-    return (
+    return quiet ? null : (
       <EmptyState
         icon={<MessageCircleQuestion className="size-6" />}
         title="Everyone found so far has a name"
@@ -291,25 +310,29 @@ function NameQuestions() {
       />
     );
   return (
-    <div className="grid max-w-5xl grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
-      {data.map((p) => (
-        <div key={p.id} className="rounded-2xl border border-line bg-surface p-4">
-          <div className="mb-3 flex gap-2">
-            {p.faces.slice(0, 4).map((f) => (
-              <FaceAvatar key={f} faceId={f} size={56} />
-            ))}
+    <div className="max-w-5xl">
+      {pet && <h2 className="mb-3 text-[17px] font-semibold">Whose pet is this?</h2>}
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
+        {data.map((p) => (
+          <div key={p.id} className="rounded-2xl border border-line bg-surface p-4">
+            <div className="mb-3 flex gap-2">
+              {p.faces.slice(0, 4).map((f) => (
+                <FaceAvatar key={f} faceId={f} size={56} kind={kind} />
+              ))}
+            </div>
+            <div className="mb-2 text-xs text-fg-3">{num(p.count)} photos</div>
+            <NameInput
+              kind={kind}
+              placeholder={pet ? 'Name this pet' : 'Who is this?'}
+              onSubmit={async ({ name, personId }) => {
+                await namePerson(p.id, name, personId);
+                qc.invalidateQueries({ queryKey: ['review'] });
+                qc.invalidateQueries({ queryKey: ['people'] });
+              }}
+            />
           </div>
-          <div className="mb-2 text-xs text-fg-3">{num(p.count)} photos</div>
-          <NameInput
-            placeholder="Who is this?"
-            onSubmit={async ({ name, personId }) => {
-              await namePerson(p.id, name, personId);
-              qc.invalidateQueries({ queryKey: ['review'] });
-              qc.invalidateQueries({ queryKey: ['people'] });
-            }}
-          />
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

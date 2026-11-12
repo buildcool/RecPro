@@ -1,26 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Command } from 'cmdk';
-import {
-  ArrowRight,
-  Bookmark,
-  Compass,
-  FolderOpen,
-  FolderPlus,
-  History,
-  House,
-  Images,
-  Lock,
-  Luggage,
-  MapPin,
-  MessageCircleQuestion,
-  Search,
-  Settings,
-  Sparkles,
-  Tag,
-  UserRound,
-  Users,
-  Wand2,
-} from 'lucide-react';
+import { ArrowRight, Bookmark, Compass, FolderOpen, FolderPlus, History, House, Images, Lock, Luggage, MapPin, MessageCircleQuestion, PawPrint, Search, Settings, Sparkles, Tag, UserRound, Users, Wand2 } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { create } from 'zustand';
@@ -44,6 +24,12 @@ export function CommandPalette() {
   const people = useQuery({
     queryKey: ['people', 'palette'],
     queryFn: () => get<PersonLite[]>('/api/people?named=1'),
+    enabled: open,
+    retry: false,
+  });
+  const pets = useQuery({
+    queryKey: ['people', 'pets', 'palette'],
+    queryFn: () => get<PersonLite[]>('/api/people?kind=pet&named=1'),
     enabled: open,
     retry: false,
   });
@@ -102,6 +88,21 @@ export function CommandPalette() {
                         <img src={mediaUrl(`media/face/${p.cover_face_id}`)} alt="" className="size-6 rounded-full object-cover" />
                       ) : (
                         <UserRound className="size-4 text-fg-3" />
+                      )}
+                      <span className="flex-1">{p.name}</span>
+                      <span className="text-xs text-fg-3">{p.count} photos</span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+              {(pets.data?.length ?? 0) > 0 && (
+                <Command.Group heading="Pets" className="px-1 pb-1 text-xs text-fg-3 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
+                  {pets.data!.slice(0, 30).map((p) => (
+                    <Command.Item key={p.id} value={`pet ${p.name}`} onSelect={() => go(`/people/${p.id}`)} className={item}>
+                      {p.cover_face_id ? (
+                        <img src={mediaUrl(`media/animal/${p.cover_face_id}`)} alt="" className="size-6 rounded-full object-cover" />
+                      ) : (
+                        <PawPrint className="size-4 text-fg-3" />
                       )}
                       <span className="flex-1">{p.name}</span>
                       <span className="text-xs text-fg-3">{p.count} photos</span>

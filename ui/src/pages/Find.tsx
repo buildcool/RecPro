@@ -14,11 +14,19 @@ import { startTimes, useViewer } from '../features/viewer/viewerStore';
 import { ApiError, mediaUrl, post, upload } from '../lib/api';
 import { bridge } from '../lib/bridge';
 import { clock, num } from '../lib/format';
-import { useNamedPeople } from '../lib/people';
+import { speciesName, useNamedPeople, useNamedPets } from '../lib/people';
 import { useFolders } from '../lib/queries';
 import type { MediaItem } from '../lib/types';
 
-type Hit = MediaItem & { tier: 'sure' | 'check'; score: number; face_id: number; person_id: number | null; person_name: string | null; folder: string };
+type Hit = MediaItem & {
+  tier: 'sure' | 'check';
+  score: number;
+  face_id: number;
+  det?: 'face' | 'animal'; // which crop face_id is: a person's face or a pet
+  person_id: number | null;
+  person_name: string | null;
+  folder: string;
+};
 type Result = {
   sure: Hit[];
   check: Hit[];
@@ -134,7 +142,9 @@ function WhoStep({
   mode: 'any' | 'all' | 'alone';
   setMode: (v: 'any' | 'all' | 'alone') => void;
 }) {
-  const { data: named } = useNamedPeople();
+  const { data: humans } = useNamedPeople();
+  const { data: pets } = useNamedPets();
+  const named = [...(humans ?? []), ...(pets ?? [])];
   const [q, setQ] = useState('');
   const [found, setFound] = useState<{ source: string; faces: RefFace[]; error: string | null }[]>([]);
   const [loading, setLoading] = useState(false);
@@ -174,7 +184,7 @@ function WhoStep({
         <div className="mb-3 flex items-center gap-3">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-fg-3" />
-            <TextInput className="pl-8" placeholder="Search people" value={q} onChange={(e) => setQ(e.target.value)} />
+            <TextInput className="pl-8" placeholder="Search people and pets" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <Button
             icon={loading ? <Loader2 className="size-4 animate-spin" /> : <ImagePlus className="size-4" />}
@@ -200,7 +210,7 @@ function WhoStep({
             }}
           />
         </div>
-        {(named?.length ?? 0) === 0 && <p className="py-4 text-sm text-fg-2">No named people yet. Name groups in People, or use a photo.</p>}
+        {named.length === 0 && <p className="py-4 text-sm text-fg-2">No named people or pets yet. Name groups in People, or use a photo.</p>}
         <div className="grid max-h-[340px] grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2 overflow-y-auto">
           {list.map((p) => {
             const on = people.includes(p.id);
@@ -211,9 +221,12 @@ function WhoStep({
                 onClick={() => setPeople(on ? people.filter((x) => x !== p.id) : [...people, p.id])}
                 className={clsx('relative flex flex-col items-center rounded-xl p-2 transition-colors', on ? 'bg-accent-soft' : 'hover:bg-surface-2')}
               >
-                <FaceAvatar faceId={p.cover_face_id} size={64} className={clsx(on && 'ring-2 ring-accent')} />
+                <FaceAvatar faceId={p.cover_face_id} size={64} kind={p.kind} className={clsx(on && 'ring-2 ring-accent')} />
                 <span className="mt-1.5 w-full truncate text-[13px] font-medium">{p.name}</span>
-                <span className="text-[11px] text-fg-3">{num(p.count)}</span>
+                <span className="text-[11px] text-fg-3">
+                  {p.kind === 'pet' ? `${speciesName(p.species)} · ` : ''}
+                  {num(p.count)}
+                </span>
                 {on && (
                   <span className="absolute right-2 top-2 flex size-5 items-center justify-center rounded-full bg-accent text-white">
                     <Check className="size-3" strokeWidth={3} />
@@ -356,7 +369,9 @@ function CheckStep({ people, refs, mode, folderIds, kinds }: { people: number[];
   const [saving, setSaving] = useState(false);
   const askUnlock = usePrivateUi((s) => s.ask);
   const startCopy = useCopyFlow((s) => s.start);
-  const { data: named } = useNamedPeople();
+  const { data: humans } = useNamedPeople();
+  const { data: pets } = useNamedPets();
+  const named = [...(humans ?? []), ...(pets ?? [])];
 
   if (isLoading || !res)
     return (
@@ -372,7 +387,7 @@ function CheckStep({ people, refs, mode, folderIds, kinds }: { people: number[];
   [...selected, ...extra].forEach((h) => {
     if (h.person_name) personByMedia[h.id] = h.person_name;
   });
-  const names = people.map((id) => named?.find((p) => p.id === id)?.name).filter(Boolean) as string[];
+  const names = people.map((id) => named.find((p) => p.id === id)?.name).filter(Boolean) as string[];
   const title = `${names.join(' & ') || 'Person from a photo'} · ${num(chosenIds.length)} items`;
 
   const confirmChecks = async () => {
@@ -457,7 +472,11 @@ function CheckStep({ people, refs, mode, folderIds, kinds }: { people: number[];
                     className={clsx('relative cursor-pointer rounded-xl border-2 bg-surface p-1.5', on ? 'border-accent' : 'border-transparent')}
                   >
                     <div className="flex gap-1">
-                      <img src={mediaUrl(`media/face/${h.face_id}?size=160`)} alt="" className={clsx('aspect-square w-1/2 rounded-lg object-cover', h.priv && 'blur-private')} />
+                      <img
+                        src={mediaUrl(`media/${h.det === 'animal' ? 'animal' : 'face'}/${h.face_id}?size=160`)}
+                        alt=""
+                        className={clsx('aspect-square w-1/2 rounded-lg object-cover', h.priv && 'blur-private')}
+                      />
                       <img src={mediaUrl(`media/thumb/${h.id}?v=${h.v}`)} alt="" className={clsx('aspect-square w-1/2 rounded-lg object-cover', h.priv && 'blur-private')} />
                     </div>
                     <div className="mt-1 flex items-center justify-between px-0.5 text-[11px] text-fg-2">

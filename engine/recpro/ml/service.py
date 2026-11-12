@@ -177,9 +177,47 @@ class ML:
                 self._engines[mid] = s
             return self._hand_out(mid, s)
 
+    def objects_id(self) -> str | None:
+        """Which object detector to use: the profile's choice if installed, else whichever is."""
+        prefer = "objects" if self.ctx.settings.get("models.profile", "best") == "best" else "objects-fast"
+        for mid in (prefer, "objects", "objects-fast"):
+            if self.has(mid):
+                return mid
+        return None
+
+    def objects(self):
+        """The object detector (D-FINE), or None if not installed."""
+        mid = self.objects_id()
+        if mid is None:
+            return None
+        key = f"{mid}:detector"
+        with self._lock:
+            d = self._engines.get(key)
+            if d is None:
+                from .objects import ObjectDetector
+
+                d = ObjectDetector(self.models.path(mid) / "detector.onnx", use_gpu=self.use_gpu)
+                self._engines[key] = d
+            return self._hand_out(key, d)
+
+    def petlook(self):
+        """DINOv2 for telling animals apart, or None if not installed."""
+        if not self.has("pets"):
+            return None
+        with self._lock:
+            m = self._engines.get("pets")
+            if m is None:
+                from .petlook import PetLook
+
+                m = PetLook(self.models.path("pets") / "model.onnx", use_gpu=self.use_gpu)
+                self._engines["pets"] = m
+            return self._hand_out("pets", m)
+
     def _on_installed(self, model_id: str) -> None:
         with self._lock:
             self._engines.pop(model_id, None)
+            for k in [k for k in self._engines if k.startswith(f"{model_id}:")]:
+                del self._engines[k]
             if model_id == "gpu":
                 # models loaded so far run on the processor: load them again on the graphics card
                 self._engines.clear()
@@ -188,6 +226,17 @@ class ML:
         if model_id in ("faces", "nudenet", "siglip2", "siglip2-fast"):
             # videos watched without this model are watched again with it
             self.ctx.db.x("UPDATE media SET video_v=0 WHERE kind='video'")
+        if model_id == "pets":
+            # photos read before the pet model arrived: read again those with an animal to tell apart
+            from .objects import CLASS
+            from ..review.pets import MIN_DET, SPECIES
+
+            classes = ",".join(str(CLASS[n]) for n in SPECIES)
+            self.ctx.db.x(
+                f"UPDATE media SET obj_v=0 WHERE id IN (SELECT DISTINCT media_id FROM objects WHERE cls IN ({classes}) AND score >= ?)"
+                " AND id NOT IN (SELECT media_id FROM animals)",
+                (MIN_DET,),
+            )
         if model_id == "emotion":
             # photos analyzed before the expression model arrived get their faces' expressions now
             self.ctx.db.x(

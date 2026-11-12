@@ -5,6 +5,9 @@ Every face/person judgment lands in a tier:
   * Check  (state 'suggested'): goes to the Review inbox, never silently dropped
   * No     (state 'none'):      not applied
 Your answers ('confirmed' state and face_votes) are never overwritten.
+
+Pets (review/pets.py) are the same machinery over animals instead of faces: a pet is a "person"
+of kind 'pet', and the class settings below say which table, answers and thresholds to use.
 """
 from __future__ import annotations
 
@@ -39,10 +42,32 @@ def _sigmoid(x: float) -> float:
 
 
 class People:
+    KIND = "human"
+    T = "faces"  # the detections grouped into people
+    VOTES, VFK = "face_votes", "face_id"  # your answers, and their detection column
+    DIM = 512
+    SENS = "sensitivity.faces"
+    COUNT_KEYS = ("faces", "name", "merge")  # this service's keys in the Review counts
+    TIERS = TIERS
+    MIN_Q_AUTO = MIN_Q_AUTO
+    MARGIN = MARGIN
+    CLUSTER_SIM = CLUSTER_SIM
+    CLUSTER_JOIN = CLUSTER_JOIN
+    MERGE_AUTO = MERGE_AUTO
+    MERGE_ASK = MERGE_ASK
+    NAMED_ASK = 0.5  # two different names: asked about only from this similarity
+    MIN_CLUSTER_Q = MIN_CLUSTER_Q
+    SURE_RANGE = (0.40, 0.62)  # where your answers may move the "sure" line
+    CHECK_FLOOR = 0.15
+    CALIB0 = (0.36, 0.045)  # match probability (centre, width) before any answers
+    # photos still waiting for this kind of detection: group less often meanwhile
+    BUSY = "SELECT EXISTS(SELECT 1 FROM media WHERE state='active' AND kind='image' AND quick_v>=1 AND width IS NOT NULL AND deep_v<1)"
+
     def __init__(self, ctx: Context):
         self.ctx = ctx
         self.db = ctx.db
-        self.index = FaceIndex()
+        self.index = FaceIndex(self.DIM)
+        self.last_answer_at = 0.0
         self._lock = threading.RLock()
         self._pending: set[int] = set()
         self._wake = threading.Event()
@@ -64,13 +89,13 @@ class People:
 
     def _boot(self) -> None:
         t0 = time.time()
-        rows = self.db.q("SELECT id, media_id, quality, embedding FROM faces")
+        rows = self.db.q(f"SELECT id, media_id, quality, embedding FROM {self.T}")
         self.index.load_rows(rows)
         self._fit_calibration()
         self.ready = True
-        log.info("face index ready: %d faces in %.1fs", len(self.index), time.time() - t0)
+        log.info("%s index ready: %d in %.1fs", self.T, len(self.index), time.time() - t0)
         # faces that were never matched (e.g. engine stopped mid-way)
-        pend = [r["id"] for r in self.db.q("SELECT id FROM faces WHERE state='none' AND person_id IS NULL")]
+        pend = [r["id"] for r in self.db.q(f"SELECT id FROM {self.T} WHERE state='none' AND person_id IS NULL")]
         if pend:
             with self._lock:
                 self._pending.update(pend)
@@ -81,7 +106,7 @@ class People:
         rows = []
         for i in range(0, len(face_ids), 900):
             chunk = face_ids[i : i + 900]
-            rows += self.db.q(f"SELECT id, media_id, quality, embedding FROM faces WHERE id IN ({','.join('?' * len(chunk))})", chunk)
+            rows += self.db.q(f"SELECT id, media_id, quality, embedding FROM {self.T} WHERE id IN ({','.join('?' * len(chunk))})", chunk)
         self.index.load_rows(rows)
         with self._lock:
             self._pending.update(face_ids)
@@ -96,12 +121,7 @@ class People:
                 return
             try:
                 changed = self.assign_pending()
-                busy = bool(
-                    self.db.scalar(
-                        "SELECT EXISTS(SELECT 1 FROM media WHERE state='active' AND kind='image' AND quick_v>=1 AND width IS NOT NULL AND deep_v<1)",
-                        default=0,
-                    )
-                )
+                busy = bool(self.db.scalar(self.BUSY, default=0))
                 due = self._new_since_cluster > 0 and (
                     not busy or self._new_since_cluster >= 400 or time.time() - self._last_cluster > 90
                 )
@@ -118,24 +138,24 @@ class People:
 
     # ------------------------------------------------------------------ thresholds & calibration
     def thresholds(self) -> tuple[float, float]:
-        mode = str(self.ctx.settings.get("sensitivity.faces", "never_miss"))
-        sure, check = TIERS.get(mode, TIERS["never_miss"])
+        mode = str(self.ctx.settings.get(self.SENS, "never_miss"))
+        sure, check = self.TIERS.get(mode, self.TIERS["never_miss"])
         if self._calib:
             c, w = self._calib
             # score where the learned probability is 96% (sure) and 3% (check)
             sure_l = c + w * math.log(0.96 / 0.04)
             check_l = c + w * math.log(0.03 / 0.97)
-            sure = float(np.clip((sure + sure_l) / 2, 0.40, 0.62))
-            check = float(np.clip(min(check, check_l) if mode == "never_miss" else (check + check_l) / 2, 0.15, sure - 0.06))
+            sure = float(np.clip((sure + sure_l) / 2, *self.SURE_RANGE))
+            check = float(np.clip(min(check, check_l) if mode == "never_miss" else (check + check_l) / 2, self.CHECK_FLOOR, sure - 0.06))
         return sure, check
 
     def probability(self, score: float) -> float:
-        c, w = self._calib or (0.36, 0.045)
+        c, w = self._calib or self.CALIB0
         return _sigmoid((score - c) / w)
 
     def _fit_calibration(self) -> None:
         """1-D logistic fit of your yes/no answers against the match score."""
-        votes = self.db.q("SELECT face_id, person_id, vote FROM face_votes")
+        votes = self.db.q(f"SELECT {self.VFK} AS face_id, person_id, vote FROM {self.VOTES}")
         if len(votes) < 15:
             self._calib = None
             return
@@ -167,13 +187,13 @@ class People:
     # ------------------------------------------------------------------ exemplars
     def exemplars(self, pid: int, exclude: set[int] | None = None) -> np.ndarray:
         rows = self.db.q(
-            f"""SELECT id FROM faces WHERE person_id=? AND state IN ({','.join('?' * len(MEMBER))})
+            f"""SELECT id FROM {self.T} WHERE person_id=? AND state IN ({','.join('?' * len(MEMBER))})
                 ORDER BY (state='confirmed') DESC, quality DESC LIMIT ?""",
             (pid, *MEMBER, MAX_EXEMPLARS),
         )
         ids = [r["id"] for r in rows if not exclude or r["id"] not in exclude]
-        E = self.index.vectors(ids) if ids else np.zeros((0, 512), np.float32)
-        refs = self.db.q("SELECT embedding FROM ref_faces WHERE person_id=?", (pid,))
+        E = self.index.vectors(ids) if ids else np.zeros((0, self.DIM), np.float32)
+        refs = self.db.q("SELECT embedding FROM ref_faces WHERE person_id=?", (pid,)) if self.KIND == "human" else []
         if refs:
             R = np.stack([np.frombuffer(r["embedding"], dtype=np.float16).astype(np.float32) for r in refs])
             E = np.concatenate([E, R]) if len(E) else R
@@ -189,16 +209,58 @@ class People:
         return c / (np.linalg.norm(c) + 1e-9)
 
     def _named(self) -> list[Any]:
-        return self.db.q("SELECT id, name FROM people WHERE name IS NOT NULL AND hidden=0 AND kind='human'")
+        return self.db.q("SELECT id, name FROM people WHERE name IS NOT NULL AND hidden=0 AND kind=?", (self.KIND,))
 
     def _no_votes(self, face_ids) -> dict[int, set[int]]:
         out: dict[int, set[int]] = {}
         ids = list(face_ids)
         for i in range(0, len(ids), 900):
             chunk = ids[i : i + 900]
-            for r in self.db.q(f"SELECT face_id, person_id FROM face_votes WHERE vote<0 AND face_id IN ({','.join('?' * len(chunk))})", chunk):
+            for r in self.db.q(
+                f"SELECT {self.VFK} AS face_id, person_id FROM {self.VOTES} WHERE vote<0 AND {self.VFK} IN ({','.join('?' * len(chunk))})", chunk
+            ):
                 out.setdefault(r["face_id"], set()).add(r["person_id"])
         return out
+
+    # ------------------------------------------------------------------ kinds within a service
+    # Pets come in species: a dog is never matched to, grouped with or merged into a cat. People
+    # have one kind, so these hooks say nothing for them.
+    def _kinds(self, ids) -> dict[int, str] | None:
+        """detection id -> its kind (None: one kind only)."""
+        return None
+
+    def _person_kinds(self, pids) -> dict[int, str] | None:
+        """person id -> its kind (None: one kind only)."""
+        return None
+
+    def _mask(self, det_ids: list[int], pids: list[int], S: np.ndarray) -> None:
+        """Sets S[i, j] to -1 where detection i and person j are of different kinds."""
+        dk = self._kinds(det_ids)
+        if dk is None or not len(det_ids) or not len(pids):
+            return
+        pk = self._person_kinds(pids) or {}
+        d = np.array([dk.get(int(i), "") for i in det_ids])
+        for j, pid in enumerate(pids):
+            k = pk.get(int(pid))
+            if k:
+                S[(d != k) & (d != ""), j] = -1.0
+
+    def _mask_people(self, pids: list[int], S: np.ndarray) -> None:
+        """Sets S[i, j] to -1 where people i and j are of different kinds."""
+        pk = self._person_kinds(pids)
+        if not pk:
+            return
+        k = np.array([pk.get(int(p), "") for p in pids])
+        S[(k[:, None] != k[None, :]) & (k[:, None] != "") & (k[None, :] != "")] = -1.0
+
+    def _new_group(self, c, cover_id: int, now: float) -> int:
+        """An unnamed group, inside the caller's transaction."""
+        return c.execute(
+            "INSERT INTO people(name, kind, cover_face_id, created_at, updated_at) VALUES(NULL, ?, ?, ?, ?)", (self.KIND, cover_id, now, now)
+        ).lastrowid
+
+    def _new_person(self, name: str, now: float, first: list[int] | None) -> int:
+        return self.db.x("INSERT INTO people(name, kind, created_at, updated_at) VALUES(?, ?, ?, ?)", (name, self.KIND, now, now)).lastrowid
 
     # ------------------------------------------------------------------ matching new faces
     def assign_pending(self) -> bool:
@@ -212,7 +274,7 @@ class People:
             for i in range(0, len(ids), 900):
                 chunk = ids[i : i + 900]
                 rows += self.db.q(
-                    f"SELECT id, media_id, quality FROM faces WHERE state='none' AND person_id IS NULL AND id IN ({','.join('?' * len(chunk))})",
+                    f"SELECT id, media_id, quality FROM {self.T} WHERE state='none' AND person_id IS NULL AND id IN ({','.join('?' * len(chunk))})",
                     chunk,
                 )
             if not rows:
@@ -231,10 +293,11 @@ class People:
                 for j, p in enumerate(named):
                     if p["id"] in nov.get(fid, ()):
                         scores[i, j] = -1.0
+            self._mask(fids, [p["id"] for p in named], scores)
             updates: list[tuple] = []
             used: dict[int, set[int]] = {}  # media -> persons already given (one face per person per photo)
             for mid, pid in self.db.q(
-                f"""SELECT media_id, person_id FROM faces WHERE person_id IS NOT NULL AND state IN ('confirmed','auto','suggested')
+                f"""SELECT media_id, person_id FROM {self.T} WHERE person_id IS NOT NULL AND state IN ('confirmed','auto','suggested')
                     AND media_id IN ({','.join('?' * len({r['media_id'] for r in rows}))})""",
                 list({r["media_id"] for r in rows}),
             ):
@@ -260,20 +323,20 @@ class People:
                     continue
                 s = float(scores[i, choice])
                 second = float(np.partition(scores[i], -2)[-2]) if len(named) > 1 else -1.0
-                state = "auto" if (s >= sure and r["quality"] >= MIN_Q_AUTO and s - second >= MARGIN) else "suggested"
+                state = "auto" if (s >= sure and r["quality"] >= self.MIN_Q_AUTO and s - second >= self.MARGIN) else "suggested"
                 used.setdefault(r["media_id"], set()).add(named[choice]["id"])
                 updates.append((named[choice]["id"], state, s, r["id"]))
             # Faces that match no named person may belong to an unnamed group
             joins = self._join_unnamed(unmatched)
             with self.db.tx() as c:
-                c.executemany("UPDATE faces SET person_id=?, state=?, score=? WHERE id=? AND state='none'", updates)
-                c.executemany("UPDATE faces SET person_id=?, state='cluster', score=? WHERE id=? AND state='none'", joins)
+                c.executemany(f"UPDATE {self.T} SET person_id=?, state=?, score=? WHERE id=? AND state='none'", updates)
+                c.executemany(f"UPDATE {self.T} SET person_id=?, state='cluster', score=? WHERE id=? AND state='none'", joins)
             return bool(updates or joins)
 
     def _join_unnamed(self, face_ids: list[int]) -> list[tuple]:
         if not face_ids:
             return []
-        unnamed = self.db.q("SELECT id FROM people WHERE name IS NULL AND hidden=0 AND kind='human'")
+        unnamed = self.db.q("SELECT id FROM people WHERE name IS NULL AND hidden=0 AND kind=?", (self.KIND,))
         if not unnamed:
             return []
         cents, pids = [], []
@@ -286,14 +349,15 @@ class People:
             return []
         F = self.index.vectors(face_ids)
         S = F @ np.stack(cents).T
+        self._mask(face_ids, pids, S)
         media_of = {
             r["id"]: r["media_id"]
-            for r in self.db.q(f"SELECT id, media_id FROM faces WHERE id IN ({','.join('?' * len(face_ids))})", face_ids)
+            for r in self.db.q(f"SELECT id, media_id FROM {self.T} WHERE id IN ({','.join('?' * len(face_ids))})", face_ids)
         }
         taken = {
             (r["media_id"], r["person_id"])
             for r in self.db.q(
-                f"SELECT media_id, person_id FROM faces WHERE person_id IN ({','.join('?' * len(pids))}) AND media_id IN ({','.join('?' * len(set(media_of.values())))})",
+                f"SELECT media_id, person_id FROM {self.T} WHERE person_id IN ({','.join('?' * len(pids))}) AND media_id IN ({','.join('?' * len(set(media_of.values())))})",
                 [*pids, *set(media_of.values())],
             )
         }
@@ -302,7 +366,7 @@ class People:
             fid = face_ids[i]
             j = int(np.argmax(S[i]))
             key = (media_of.get(fid), pids[j])
-            if S[i, j] >= CLUSTER_JOIN and key not in taken:
+            if S[i, j] >= self.CLUSTER_JOIN and key not in taken:
                 out.append((pids[j], float(S[i, j]), fid))
                 taken.add(key)
         return out
@@ -313,8 +377,8 @@ class People:
             self._new_since_cluster = 0
             self._last_cluster = time.time()
             rows = self.db.q(
-                "SELECT id, media_id, quality FROM faces WHERE person_id IS NULL AND state='none' AND quality >= ?",
-                (MIN_CLUSTER_Q,),
+                f"SELECT id, media_id, quality FROM {self.T} WHERE person_id IS NULL AND state='none' AND quality >= ?",
+                (self.MIN_CLUSTER_Q,),
             )
             if len(rows) < 3:
                 return self._auto_merge_unnamed()
@@ -322,6 +386,8 @@ class People:
             media = np.array([r["media_id"] for r in rows], np.int64)
             F = self.index.vectors(ids)
             n = len(ids)
+            kinds = self._kinds(ids.tolist())
+            kind = np.array([kinds.get(int(i), "") for i in ids]) if kinds is not None else None
             k = min(8, n - 1)
             nbrs: list[set[int]] = [set() for _ in range(n)]
             sims: dict[tuple[int, int], float] = {}
@@ -330,13 +396,15 @@ class People:
                 S = F[s : s + chunk] @ F.T
                 for i in range(S.shape[0]):
                     S[i, s + i] = -1.0
-                    # never link two faces from the same photo
+                    # never link two faces from the same photo (nor a dog and a cat)
                     S[i, media == media[s + i]] = -1.0
+                    if kind is not None:
+                        S[i, kind != kind[s + i]] = -1.0
                 part = np.argpartition(-S, k - 1, axis=1)[:, :k] if k > 0 else np.zeros((S.shape[0], 0), int)
                 for i in range(S.shape[0]):
                     for j in part[i]:
                         v = float(S[i, j])
-                        if v >= CLUSTER_SIM:
+                        if v >= self.CLUSTER_SIM:
                             nbrs[s + i].add(int(j))
                             sims[(s + i, int(j))] = v
             parent = list(range(n))
@@ -374,25 +442,21 @@ class People:
                     if len(members) < 3:
                         continue
                     cover = max(members, key=lambda i: rows[i]["quality"])
-                    cur = c.execute(
-                        "INSERT INTO people(name, kind, cover_face_id, created_at, updated_at) VALUES(NULL, 'human', ?, ?, ?)",
-                        (int(ids[cover]), now, now),
-                    )
-                    pid = cur.lastrowid
+                    pid = self._new_group(c, int(ids[cover]), now)
                     cent = F[members].mean(axis=0)
                     cent /= np.linalg.norm(cent) + 1e-9
                     c.executemany(
-                        "UPDATE faces SET person_id=?, state='cluster', score=? WHERE id=? AND state='none'",
+                        f"UPDATE {self.T} SET person_id=?, state='cluster', score=? WHERE id=? AND state='none'",
                         [(pid, float(F[i] @ cent), int(ids[i])) for i in members],
                     )
                     created += 1
             if created:
-                log.info("clustering: %d new groups from %d unknown faces", created, n)
+                log.info("clustering: %d new groups from %d unknown %s", created, n, self.T)
             merged = self._auto_merge_unnamed()
             return bool(created or merged)
 
     def _auto_merge_unnamed(self) -> bool:
-        unnamed = [r["id"] for r in self.db.q("SELECT id FROM people WHERE name IS NULL AND hidden=0 AND kind='human'")]
+        unnamed = [r["id"] for r in self.db.q("SELECT id FROM people WHERE name IS NULL AND hidden=0 AND kind=?", (self.KIND,))]
         if len(unnamed) < 2:
             return False
         cents = {pid: self.centroid(pid) for pid in unnamed}
@@ -403,9 +467,10 @@ class People:
         C = np.stack([cents[k] for k in keys])
         S = C @ C.T
         np.fill_diagonal(S, -1)
+        self._mask_people(keys, S)
         merged = False
         gone: set[int] = set()
-        for i, j in zip(*np.where(S >= MERGE_AUTO)):
+        for i, j in zip(*np.where(S >= self.MERGE_AUTO)):
             a, b = keys[i], keys[j]
             if a in gone or b in gone or a >= b:
                 continue
@@ -429,15 +494,20 @@ class People:
         info = {}
         for i in range(0, len(cand_ids), 900):
             chunk = cand_ids[i : i + 900]
-            for r in self.db.q(f"SELECT id, person_id, state, media_id, quality FROM faces WHERE id IN ({','.join('?' * len(chunk))})", chunk):
+            for r in self.db.q(f"SELECT id, person_id, state, media_id, quality FROM {self.T} WHERE id IN ({','.join('?' * len(chunk))})", chunk):
                 info[r["id"]] = r
         # faces currently pointing at this person but no longer close enough
-        for r in self.db.q("SELECT id, person_id, state, media_id, quality FROM faces WHERE person_id=? AND state IN ('suggested','auto')", (pid,)):
+        for r in self.db.q(f"SELECT id, person_id, state, media_id, quality FROM {self.T} WHERE person_id=? AND state IN ('suggested','auto')", (pid,)):
             info.setdefault(r["id"], r)
+        kinds = self._kinds(list(info))
+        if kinds is not None:  # only this pet's own species
+            want = (self._person_kinds([pid]) or {}).get(pid)
+            if want:
+                info = {fid: r for fid, r in info.items() if kinds.get(fid, want) == want}
         nov = self._no_votes(info.keys())
         score_of = {int(ids[i]): float(scores[i]) for i in cand}
         claimed: dict[int, set[int]] = {}
-        for r in self.db.q("SELECT media_id, id FROM faces WHERE person_id=? AND state IN ('confirmed','auto')", (pid,)):
+        for r in self.db.q(f"SELECT media_id, id FROM {self.T} WHERE person_id=? AND state IN ('confirmed','auto')", (pid,)):
             claimed.setdefault(r["media_id"], set()).add(r["id"])
         settled = 0
         updates = []
@@ -451,7 +521,7 @@ class People:
                 fp = self.index.vectors([fid])
                 s = float(topk_mean_sim(fp, E)[0])
             other_in_photo = claimed.get(r["media_id"], set()) - {fid}
-            if s >= sure and r["quality"] >= MIN_Q_AUTO and not other_in_photo:
+            if s >= sure and r["quality"] >= self.MIN_Q_AUTO and not other_in_photo:
                 new = "auto"
             elif s >= check and not other_in_photo:
                 new = "suggested"
@@ -472,7 +542,7 @@ class People:
             if new == "auto":
                 claimed.setdefault(r["media_id"], set()).add(fid)
         with self.db.tx() as c:
-            c.executemany("UPDATE faces SET person_id=?, state=?, score=? WHERE id=? AND state!='confirmed'", updates)
+            c.executemany(f"UPDATE {self.T} SET person_id=?, state=?, score=? WHERE id=? AND state!='confirmed'", updates)
         freed = [u[3] for u in updates if u[0] is None]
         if freed:
             with self._lock:
@@ -490,17 +560,18 @@ class People:
                 chunk = touched[i : i + 900]
                 before += [
                     (r["id"], r["person_id"], r["state"], r["score"])
-                    for r in self.db.q(f"SELECT id, person_id, state, score FROM faces WHERE id IN ({','.join('?' * len(chunk))})", chunk)
+                    for r in self.db.q(f"SELECT id, person_id, state, score FROM {self.T} WHERE id IN ({','.join('?' * len(chunk))})", chunk)
                 ]
             self._undo.append([("faces", before), ("votes", pid, touched)])
             self._undo = self._undo[-30:]
+            self.last_answer_at = now
             with self.db.tx() as c:
                 for fid in yes:
-                    c.execute("UPDATE faces SET person_id=?, state='confirmed', score=1 WHERE id=?", (pid, fid))
-                    c.execute("INSERT OR REPLACE INTO face_votes(face_id, person_id, vote, at) VALUES(?,?,1,?)", (fid, pid, now))
+                    c.execute(f"UPDATE {self.T} SET person_id=?, state='confirmed', score=1 WHERE id=?", (pid, fid))
+                    c.execute(f"INSERT OR REPLACE INTO {self.VOTES}({self.VFK}, person_id, vote, at) VALUES(?,?,1,?)", (fid, pid, now))
                 for fid in no:
-                    c.execute("INSERT OR REPLACE INTO face_votes(face_id, person_id, vote, at) VALUES(?,?,-1,?)", (fid, pid, now))
-                    c.execute("UPDATE faces SET person_id=NULL, state='none', score=NULL WHERE id=? AND person_id=?", (fid, pid))
+                    c.execute(f"INSERT OR REPLACE INTO {self.VOTES}({self.VFK}, person_id, vote, at) VALUES(?,?,-1,?)", (fid, pid, now))
+                    c.execute(f"UPDATE {self.T} SET person_id=NULL, state='none', score=NULL WHERE id=? AND person_id=?", (fid, pid))
                 c.execute("UPDATE people SET updated_at=? WHERE id=?", (now, pid))
                 if yes:
                     c.execute("UPDATE people SET cover_face_id=COALESCE(cover_face_id, ?) WHERE id=?", (yes[0], pid))
@@ -510,7 +581,7 @@ class People:
                 self._fit_calibration()
             settled = self.rescore_person(pid)
         self.publish()
-        remaining = self.db.scalar("SELECT COUNT(*) FROM faces WHERE person_id=? AND state='suggested'", (pid,), default=0)
+        remaining = self.db.scalar(f"SELECT COUNT(*) FROM {self.T} WHERE person_id=? AND state='suggested'", (pid,), default=0)
         return {"settled": settled, "remaining": remaining}
 
     def undo_last(self) -> bool:
@@ -522,9 +593,9 @@ class People:
             _, pid, touched = entry[1]
             with self.db.tx() as c:
                 for fid, person_id, state, score in faces:
-                    c.execute("UPDATE faces SET person_id=?, state=?, score=? WHERE id=?", (person_id, state, score, fid))
+                    c.execute(f"UPDATE {self.T} SET person_id=?, state=?, score=? WHERE id=?", (person_id, state, score, fid))
                 for fid in touched:
-                    c.execute("DELETE FROM face_votes WHERE face_id=? AND person_id=?", (fid, pid))
+                    c.execute(f"DELETE FROM {self.VOTES} WHERE {self.VFK}=? AND person_id=?", (fid, pid))
             self.rescore_person(pid)
         self.publish()
         return True
@@ -538,15 +609,15 @@ class People:
                 c.execute("UPDATE people SET name=?, updated_at=? WHERE id=?", (name, now, pid))
                 # Naming a group turns its grouped faces into sure matches for that person
                 if name:
-                    c.execute("UPDATE faces SET state='auto' WHERE person_id=? AND state='cluster'", (pid,))
+                    c.execute(f"UPDATE {self.T} SET state='auto' WHERE person_id=? AND state='cluster'", (pid,))
             if name:
                 self.rescore_person(pid)
         self.publish()
 
     def find_by_name(self, name: str, exclude: int | None = None) -> Any:
         return self.db.q1(
-            "SELECT id, name FROM people WHERE lower(name)=lower(?) AND id != ? AND kind='human'",
-            (name.strip(), exclude or -1),
+            "SELECT id, name FROM people WHERE lower(name)=lower(?) AND id != ? AND kind=?",
+            (name.strip(), exclude or -1, self.KIND),
         )
 
     def merge(self, src: int, dst: int, publish: bool = True) -> None:
@@ -557,28 +628,28 @@ class People:
             dst_named = self.db.scalar("SELECT name FROM people WHERE id=?", (dst,))
             with self.db.tx() as c:
                 c.execute(
-                    "UPDATE faces SET person_id=?, state=CASE WHEN state='cluster' AND ? IS NOT NULL THEN 'auto' ELSE state END WHERE person_id=?",
+                    f"UPDATE {self.T} SET person_id=?, state=CASE WHEN state='cluster' AND ? IS NOT NULL THEN 'auto' ELSE state END WHERE person_id=?",
                     (dst, dst_named, src),
                 )
-                c.execute("UPDATE OR IGNORE face_votes SET person_id=? WHERE person_id=?", (dst, src))
-                c.execute("DELETE FROM face_votes WHERE person_id=?", (src,))
+                c.execute(f"UPDATE OR IGNORE {self.VOTES} SET person_id=? WHERE person_id=?", (dst, src))
+                c.execute(f"DELETE FROM {self.VOTES} WHERE person_id=?", (src,))
                 c.execute("UPDATE ref_faces SET person_id=? WHERE person_id=?", (dst, src))
                 c.execute("DELETE FROM person_pairs WHERE a=? OR b=?", (src, src))
                 c.execute("DELETE FROM people WHERE id=?", (src,))
                 # Two AI-assigned faces of the same photo can't both be this person: keep the best
                 dupes = c.execute(
-                    """SELECT media_id FROM faces WHERE person_id=? AND state IN ('auto','cluster','suggested')
+                    f"""SELECT media_id FROM {self.T} WHERE person_id=? AND state IN ('auto','cluster','suggested')
                        GROUP BY media_id HAVING COUNT(*) > 1""",
                     (dst,),
                 ).fetchall()
                 freed = []
                 for d in dupes:
                     fs = c.execute(
-                        "SELECT id FROM faces WHERE person_id=? AND media_id=? AND state IN ('auto','cluster','suggested') ORDER BY score DESC",
+                        f"SELECT id FROM {self.T} WHERE person_id=? AND media_id=? AND state IN ('auto','cluster','suggested') ORDER BY score DESC",
                         (dst, d["media_id"]),
                     ).fetchall()
                     for f in fs[1:]:
-                        c.execute("UPDATE faces SET person_id=NULL, state='none', score=NULL WHERE id=?", (f["id"],))
+                        c.execute(f"UPDATE {self.T} SET person_id=NULL, state='none', score=NULL WHERE id=?", (f["id"],))
                         freed.append(f["id"])
             if freed:
                 self._pending.update(freed)
@@ -595,9 +666,7 @@ class People:
             if existing:
                 pid = existing["id"]
             else:
-                pid = self.db.x(
-                    "INSERT INTO people(name, kind, created_at, updated_at) VALUES(?, 'human', ?, ?)", (name.strip(), now, now)
-                ).lastrowid
+                pid = self._new_person(name.strip(), now, face_ids)
             if face_ids:
                 self.answer(pid, face_ids, [])
             for t in ref_tokens or []:
@@ -631,19 +700,27 @@ class People:
         return r[0] if r else None
 
     # ------------------------------------------------------------------ review queue
-    def review_counts(self) -> dict[str, int]:
+    def own_counts(self) -> dict[str, int]:
         faces = self.db.scalar(
-            """SELECT COUNT(*) FROM faces f JOIN people p ON p.id=f.person_id JOIN media m ON m.id=f.media_id
+            f"""SELECT COUNT(*) FROM {self.T} f JOIN people p ON p.id=f.person_id JOIN media m ON m.id=f.media_id
                WHERE f.state='suggested' AND p.hidden=0 AND p.name IS NOT NULL AND m.state='active'""",
             default=0,
         )
         name = self.db.scalar(
-            """SELECT COUNT(*) FROM people p WHERE p.name IS NULL AND p.hidden=0 AND p.kind='human'
-               AND (SELECT COUNT(*) FROM faces f WHERE f.person_id=p.id) >= 3""",
+            f"""SELECT COUNT(*) FROM people p WHERE p.name IS NULL AND p.hidden=0 AND p.kind=?
+               AND (SELECT COUNT(*) FROM {self.T} f WHERE f.person_id=p.id) >= 3""",
+            (self.KIND,),
             default=0,
         )
         merge = len(self.merge_suggestions(limit=50))
-        out = {"faces": faces, "name": name, "merge": merge}
+        return dict(zip(self.COUNT_KEYS, (faces, name, merge)))
+
+    def review_counts(self) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for key in ("people", "pets"):
+            svc = self.ctx.services.get(key)
+            if svc is not None:
+                out.update(svc.own_counts())  # type: ignore[attr-defined]
         extra = self.ctx.services.get("labels")
         if extra is not None:
             try:
@@ -656,16 +733,16 @@ class People:
     def review_faces(self, pid: int | None, limit: int = 12) -> dict[str, Any]:
         if pid is None:
             r = self.db.q1(
-                """SELECT f.person_id AS pid, COUNT(*) n FROM faces f JOIN people p ON p.id=f.person_id JOIN media m ON m.id=f.media_id
+                f"""SELECT f.person_id AS pid, COUNT(*) n FROM {self.T} f JOIN people p ON p.id=f.person_id JOIN media m ON m.id=f.media_id
                    WHERE f.state='suggested' AND p.hidden=0 AND p.name IS NOT NULL AND m.state='active'
                    GROUP BY f.person_id ORDER BY n DESC LIMIT 1"""
             )
             if r is None:
-                return {"person": None, "items": [], "remaining": 0}
+                return {"kind": self.KIND, "person": None, "items": [], "remaining": 0}
             pid = r["pid"]
         person = self.db.q1("SELECT id, name, cover_face_id FROM people WHERE id=?", (pid,))
         rows = self.db.q(
-            """SELECT f.id, f.media_id, f.score, f.quality, m.phash, m.sens_state FROM faces f JOIN media m ON m.id=f.media_id
+            f"""SELECT f.id, f.media_id, f.score, f.quality, m.phash, m.sens_state FROM {self.T} f JOIN media m ON m.id=f.media_id
                WHERE f.person_id=? AND f.state='suggested' AND m.state='active'""",
             (pid,),
         )
@@ -699,16 +776,17 @@ class People:
         known = [
             r["id"]
             for r in self.db.q(
-                "SELECT id FROM faces WHERE person_id=? AND state IN ('confirmed','auto','cluster') ORDER BY (state='confirmed') DESC, quality DESC LIMIT 4",
+                f"SELECT id FROM {self.T} WHERE person_id=? AND state IN ('confirmed','auto','cluster') ORDER BY (state='confirmed') DESC, quality DESC LIMIT 4",
                 (pid,),
             )
         ]
-        return {"person": dict(person) if person else None, "known": known, "items": items, "remaining": len(rows)}
+        return {"kind": self.KIND, "person": dict(person) if person else None, "known": known, "items": items, "remaining": len(rows)}
 
     def merge_suggestions(self, limit: int = 10) -> list[dict[str, Any]]:
         people = self.db.q(
-            """SELECT p.id, p.name, p.cover_face_id, (SELECT COUNT(*) FROM faces f WHERE f.person_id=p.id AND f.state IN ('confirmed','auto','cluster')) n
-               FROM people p WHERE p.hidden=0 AND p.kind='human'"""
+            f"""SELECT p.id, p.name, p.cover_face_id, (SELECT COUNT(*) FROM {self.T} f WHERE f.person_id=p.id AND f.state IN ('confirmed','auto','cluster')) n
+               FROM people p WHERE p.hidden=0 AND p.kind=?""",
+            (self.KIND,),
         )
         people = [p for p in people if p["n"] >= 2]
         if len(people) < 2:
@@ -724,15 +802,16 @@ class People:
         C = np.stack(cents)
         S = C @ C.T
         np.fill_diagonal(S, -1)
+        self._mask_people([p["id"] for p in keep], S)
         answered = {(r["a"], r["b"]) for r in self.db.q("SELECT a, b FROM person_pairs")}
         pairs = []
-        for i, j in zip(*np.where(S >= MERGE_ASK)):
+        for i, j in zip(*np.where(S >= self.MERGE_ASK)):
             if i >= j:
                 continue
             a, b = keep[i], keep[j]
             if (min(a["id"], b["id"]), max(a["id"], b["id"])) in answered:
                 continue
-            if a["name"] and b["name"] and a["name"].lower() != b["name"].lower() and S[i, j] < 0.5:
+            if a["name"] and b["name"] and a["name"].lower() != b["name"].lower() and S[i, j] < self.NAMED_ASK:
                 continue  # two different names: only ask when quite similar
             pairs.append((float(S[i, j]), a, b))
         pairs.sort(key=lambda t: -t[0])
@@ -746,32 +825,35 @@ class People:
         faces = [
             r["id"]
             for r in self.db.q(
-                "SELECT id FROM faces WHERE person_id=? AND state IN ('confirmed','auto','cluster') ORDER BY quality DESC LIMIT 4", (pid,)
+                f"SELECT id FROM {self.T} WHERE person_id=? AND state IN ('confirmed','auto','cluster') ORDER BY quality DESC LIMIT 4", (pid,)
             )
         ]
         count = self.db.scalar(
-            "SELECT COUNT(DISTINCT media_id) FROM faces WHERE person_id=? AND state IN ('confirmed','auto','cluster')", (pid,), default=0
+            f"SELECT COUNT(DISTINCT media_id) FROM {self.T} WHERE person_id=? AND state IN ('confirmed','auto','cluster')", (pid,), default=0
         )
-        return {"id": p["id"], "name": p["name"], "cover_face_id": p["cover_face_id"] or (faces[0] if faces else None), "faces": faces, "count": count}
+        return {
+            "id": p["id"], "name": p["name"], "kind": self.KIND,
+            "cover_face_id": p["cover_face_id"] or (faces[0] if faces else None), "faces": faces, "count": count,
+        }
 
     def name_suggestions(self, limit: int = 8) -> list[dict[str, Any]]:
         rows = self.db.q(
-            """SELECT p.id, COUNT(f.id) n FROM people p JOIN faces f ON f.person_id=p.id
-               WHERE p.name IS NULL AND p.hidden=0 AND p.kind='human' GROUP BY p.id HAVING n >= 3 ORDER BY n DESC LIMIT ?""",
-            (limit,),
+            f"""SELECT p.id, COUNT(f.id) n FROM people p JOIN {self.T} f ON f.person_id=p.id
+               WHERE p.name IS NULL AND p.hidden=0 AND p.kind=? GROUP BY p.id HAVING n >= 3 ORDER BY n DESC LIMIT ?""",
+            (self.KIND, limit),
         )
         return [self._brief(r["id"]) for r in rows]
 
     # ------------------------------------------------------------------ coverage
     def coverage(self, pid: int) -> dict[str, Any]:
         found = self.db.scalar(
-            """SELECT COUNT(DISTINCT f.media_id) FROM faces f JOIN media m ON m.id=f.media_id
+            f"""SELECT COUNT(DISTINCT f.media_id) FROM {self.T} f JOIN media m ON m.id=f.media_id
                WHERE f.person_id=? AND f.state IN ('confirmed','auto','cluster') AND m.state='active'""",
             (pid,),
             default=0,
         )
         sugg = self.db.q(
-            "SELECT f.score FROM faces f JOIN media m ON m.id=f.media_id WHERE f.person_id=? AND f.state='suggested' AND m.state='active'",
+            f"SELECT f.score FROM {self.T} f JOIN media m ON m.id=f.media_id WHERE f.person_id=? AND f.state='suggested' AND m.state='active'",
             (pid,),
         )
         expected = sum(self.probability(r["score"] or 0) for r in sugg)

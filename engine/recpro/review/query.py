@@ -1,5 +1,7 @@
-"""Universal search: understands people, dates, kinds, ages, emotions, folders and categories,
-and sends whatever is left to SigLIP 2 as a description ("laptop on a sofa")."""
+"""Universal search: understands people and pets, dates, kinds, ages, emotions, folders, places,
+categories and things, and sends whatever is left to SigLIP 2 as a description ("a sunset at a
+beach"). A query made only of things ("dog", "laptop sofa", "umbrella") uses what the categories
+and the object detector found, with their Sure / Please check tiers."""
 from __future__ import annotations
 
 import json
@@ -45,20 +47,61 @@ WORD_RE = re.compile(r"[^\s,.;:!?()\[\]{}\"“”&/+|]+")
 PLACE_SKIP = frozenset(STOP | set(MONTHS) | set(KIND_WORDS) | set(AGE_WORDS) | set(GENDER_WORDS) | set(EMOTION_WORDS) | set(SIZE_WORDS))
 # with a place named, these say nothing more: "Goa trip" is the photos taken in Goa
 TRIP_WORDS = {"trip", "trips", "tour", "travel", "travels", "vacation", "vacations", "holiday", "holidays", "visit", "journey"}
+# everyday words for the categories the detector backs up (and their other spellings)
+CATEGORY_WORDS = {
+    **dict.fromkeys(("dog", "dogs", "puppy", "puppies", "doggy"), "pet.dog"),
+    **dict.fromkeys(("cat", "cats", "kitten", "kittens", "kitty"), "pet.cat"),
+    **dict.fromkeys(("bird", "birds"), "pet.bird"),
+    **dict.fromkeys(("cow", "cows"), "pet.cow"),
+    **dict.fromkeys(("horse", "horses"), "pet.horse"),
+    **dict.fromkeys(("fish", "fishes"), "pet.fish"),
+    **dict.fromkeys(("laptop", "laptops", "notebook"), "object.laptop"),
+    **dict.fromkeys(("phone", "phones", "mobile", "mobiles", "smartphone", "smartphones", "cellphone"), "object.phone"),
+    **dict.fromkeys(("computer", "computers", "desktop", "pc"), "object.desktop"),
+    **dict.fromkeys(("sofa", "sofas", "couch", "couches"), "object.sofa"),
+    **dict.fromkeys(("fridge", "fridges", "refrigerator"), "object.fridge"),
+    **dict.fromkeys(("tv", "television", "tvs"), "object.tv"),
+    **dict.fromkeys(("car", "cars"), "object.car"),
+    **dict.fromkeys(("bike", "bikes", "motorbike", "motorbikes", "motorcycle", "motorcycles", "scooter", "scooters", "scooty"), "object.motorbike"),
+    **dict.fromkeys(("bicycle", "bicycles", "cycle", "cycles"), "object.bicycle"),
+    **dict.fromkeys(("cake", "cakes", "sweets", "dessert", "desserts"), "object.cake"),
+    **dict.fromkeys(("flower", "flowers"), "object.flowers"),
+    **dict.fromkeys(("guitar", "guitars"), "object.guitar"),
+    **dict.fromkeys(("book", "books"), "object.books"),
+    **dict.fromkeys(("watch", "watches"), "object.watch"),
+    **dict.fromkeys(("jewellery", "jewelry"), "object.jewelry"),
+    **dict.fromkeys(("drink", "drinks"), "object.drinks"),
+}
+# other words for things the detector knows (its own names are understood already)
+OBJECT_SYNONYMS = {
+    **dict.fromkeys(("teddy", "teddy bear", "teddy bears", "teddies"), ("Stuffed Toy",)),
+    **dict.fromkeys(("specs", "spectacles", "sunglasses", "goggles"), ("Glasses",)),
+    **dict.fromkeys(("mug", "mugs"), ("Cup",)),
+    **dict.fromkeys(("cupboard", "cupboards", "almirah", "wardrobe", "shelf", "shelves"), ("Cabinet/shelf",)),
+    **dict.fromkeys(("bag", "bags"), ("Handbag/Satchel", "Backpack", "Briefcase")),
+    **dict.fromkeys(("purse", "purses"), ("Wallet/Purse", "Handbag/Satchel")),
+    **dict.fromkeys(("suitcase", "suitcases"), ("Luggage",)),
+    **dict.fromkeys(("ac", "air conditioner"), ("Air Conditioner",)),
+    **dict.fromkeys(("plane", "planes", "aeroplane", "aeroplanes", "flight"), ("Airplane",)),
+    **dict.fromkeys(("auto", "autos", "auto rickshaw", "tuk tuk"), ("Rickshaw",)),
+    **dict.fromkeys(("earbuds", "earphones"), ("earphone",)),
+    **dict.fromkeys(("ipad", "ipads"), ("Tablet",)),
+    **dict.fromkeys(("bus", "buses"), ("Bus",)),
+}
 SENSITIVE_WORDS = {"nude", "nudes", "naked", "nudity", "sexy", "sex", "sexual", "porn", "lingerie", "bikini", "romance", "romantic", "kissing", "kiss", "intimate", "private"}
 
 
 def parse(c: Context, q: str) -> dict[str, Any]:
     text = " " + q.strip() + " "
     out: dict[str, Any] = {"people": [], "years": [], "months": [], "kind": None, "age": None, "gender": None,
-                           "emotion": None, "size": None, "labels": [], "folders": [], "places": [], "text": "", "sensitive": False}
+                           "emotion": None, "size": None, "labels": [], "objects": [], "folders": [], "places": [], "text": "", "sensitive": False}
     low = text.lower()
     # people: longest names first
-    named = sorted(c.db.q("SELECT id, name FROM people WHERE name IS NOT NULL AND hidden=0"), key=lambda r: -len(r["name"]))
+    named = sorted(c.db.q("SELECT id, name, kind FROM people WHERE name IS NOT NULL AND hidden=0"), key=lambda r: -len(r["name"]))
     for p in named:
         pat = re.compile(r"(?<![\w])" + re.escape(p["name"].lower()) + r"(?![\w])")
         if pat.search(low):
-            out["people"].append({"id": p["id"], "name": p["name"]})
+            out["people"].append({"id": p["id"], "name": p["name"], "kind": p["kind"]})
             low = pat.sub(" ", low)
     # folders by their last name segment
     for f in c.db.q("SELECT id, path FROM folders"):
@@ -110,7 +153,69 @@ def parse(c: Context, q: str) -> dict[str, Any]:
         lab = c.db.q1("SELECT id, name, grp FROM labels WHERE lower(name)=? AND enabled=1", (out["text"].lower(),))
         if lab is not None:
             out["labels"].append({"id": lab["id"], "name": lab["name"], "grp": lab["grp"]})
+            return out
+        # only things ("dog", "laptop sofa", "umbrella"): their categories and what the detector saw
+        things = _things(c, rest)
+        if things is not None:
+            out["labels"] += things[0]
+            out["objects"] += things[1]
+            out["text"] = ""
     return out
+
+
+def _object_words() -> dict[str, tuple[str, list[int]]]:
+    """word -> (name shown, detector classes) for the things the detector knows by name."""
+    from ..ml.objects import CLASS, LABELS, display
+
+    words: dict[str, tuple[str, list[int]]] = {}
+    for i, raw in enumerate(LABELS):
+        if i == 0 or raw == "Person":
+            continue
+        name = display(i)
+        for form in {name.lower(), raw.lower()}:
+            if "/" in form or len(form) < 3:
+                continue
+            for w in (form, form + "s", form[:-1] + "ies" if form.endswith("y") else form + "es"):
+                cur = words.get(w)
+                words[w] = (cur[0], cur[1] + [i]) if cur and i not in cur[1] else (cur or (name, [i]))
+    for w in ("tennis", "french", "target", "cue"):  # in a search these mean something else
+        words.pop(w, None)
+    for w, names in OBJECT_SYNONYMS.items():
+        cls = [CLASS[n] for n in names]
+        words[w] = (display(cls[0]), cls)
+    return words
+
+
+def _things(c: Context, words: list[str]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | None:
+    """Categories and detector classes for a query of only things, or None if any word isn't one."""
+    if not words:
+        return None
+    vocab = _object_words()
+    labels: list[dict[str, Any]] = []
+    objects: list[dict[str, Any]] = []
+    i = 0
+    while i < len(words):
+        two = " ".join(words[i : i + 2])
+        if i + 1 < len(words) and two in vocab:  # "wine glass", "teddy bear"…
+            name, classes = vocab[two]
+            objects.append({"name": name, "classes": classes})
+            i += 2
+            continue
+        w = words[i]
+        key = CATEGORY_WORDS.get(w)
+        if key is not None:
+            lab = c.db.q1("SELECT id, name, grp FROM labels WHERE key=? AND enabled=1", (key,))
+            if lab is None:
+                return None
+            if all(x["id"] != lab["id"] for x in labels):
+                labels.append({"id": lab["id"], "name": lab["name"], "grp": lab["grp"]})
+        elif w in vocab:
+            name, classes = vocab[w]
+            objects.append({"name": name, "classes": classes})
+        else:
+            return None
+        i += 1
+    return labels, objects
 
 
 def library_places(c: Context) -> list[tuple[str, str, list[int]]]:
@@ -207,11 +312,19 @@ def run(c: Context, q: str, overrides: dict[str, Any] | None = None, limit: int 
     for lab in p["labels"]:
         where.append("EXISTS (SELECT 1 FROM media_labels ml WHERE ml.media_id=m.id AND ml.label_id=? AND ml.state!='rejected' AND (ml.tier!='no' OR ml.state='confirmed'))")
         params.append(lab["id"])
+    det_check, det_sure = _det_thresholds(c)
+    for ob in p.get("objects") or []:
+        where.append(f"EXISTS (SELECT 1 FROM objects o WHERE o.media_id=m.id AND o.cls IN ({','.join('?' * len(ob['classes']))}) AND o.score >= ?)")
+        params += [*ob["classes"], det_check]
     rows = db.q(f"SELECT m.id, m.taken_at FROM media m WHERE {' AND '.join(where)}", params)
     cand = [r["id"] for r in rows]
     taken = {r["id"]: r["taken_at"] or 0 for r in rows}
 
     scores: dict[int, tuple[str, float]] = {mid: ("sure", 1.0) for mid in cand}
+    if cand and (p["labels"] or p.get("objects")):
+        # a category or a thing the AI isn't sure of makes the photo a "please check"
+        unsure = _unsure(c, cand, [lab["id"] for lab in p["labels"]], p.get("objects") or [], det_sure)
+        scores = {mid: (("check", 0.5) if mid in unsure else ("sure", 1.0)) for mid in cand}
     moments: dict[int, dict[str, Any]] = {}  # videos: where the match is
     # people narrow the set (all named people together)
     if p["people"] and cand:
@@ -220,7 +333,9 @@ def run(c: Context, q: str, overrides: dict[str, Any] | None = None, limit: int 
         res = search_people(c, [x["id"] for x in p["people"]], mode="all" if len(p["people"]) > 1 else "any")
         hits = res["sure"] + res["check"]
         if p["emotion"]:
-            # "Rohit smiling": the expression must be on Rohit's own face
+            # "Rohit smiling": the expression must be on Rohit's own face (a pet's photos stay)
+            pet_hits = [h for h in hits if h.get("det") == "animal"]
+            hits = [h for h in hits if h.get("det") != "animal"]
             fids = [h["face_id"] for h in hits]
             ok_faces: set[int] = set()
             for i in range(0, len(fids), 900):
@@ -232,7 +347,7 @@ def run(c: Context, q: str, overrides: dict[str, Any] | None = None, limit: int 
                         [*chunk, p["emotion"], floor],
                     )
                 }
-            hits = [h for h in hits if h["face_id"] in ok_faces]
+            hits = [h for h in hits if h["face_id"] in ok_faces] + pet_hits
         tiers = {h["id"]: (h["tier"], h["score"]) for h in hits}
         scores = {mid: tiers[mid] for mid in cand if mid in tiers}
         moments = {h["id"]: {"spans": h["spans"], "at_ms": h["at_ms"]} for h in hits if h.get("spans")}
@@ -344,6 +459,38 @@ def _relative(model: Any, E: np.ndarray, T: np.ndarray, B: np.ndarray) -> np.nda
     logits -= logits.max(axis=1, keepdims=True)
     ex = np.exp(logits)
     return ex[:, 0] / ex.sum(axis=1)
+
+
+def _det_thresholds(c: Context) -> tuple[float, float]:
+    """(please check, sure) for a thing the detector saw, at the categories' sensitivity."""
+    from ..labels import THRESHOLDS
+
+    mode = str(c.settings.get("sensitivity.categories", "balanced"))
+    return THRESHOLDS["det"].get(mode, THRESHOLDS["det"]["balanced"])
+
+
+def _unsure(c: Context, mids: list[int], label_ids: list[int], objects: list[dict[str, Any]], det_sure: float) -> set[int]:
+    """The photos where one of the categories is only "please check", or a thing was seen only faintly."""
+    out: set[int] = set()
+    for i in range(0, len(mids), 900):
+        chunk = mids[i : i + 900]
+        marks = ",".join("?" * len(chunk))
+        for lid in label_ids:
+            out |= {
+                int(r[0])
+                for r in c.db.q(
+                    f"SELECT media_id FROM media_labels WHERE label_id=? AND media_id IN ({marks}) AND state!='confirmed' AND tier!='sure'",
+                    [lid, *chunk],
+                )
+            }
+        for ob in objects:
+            cls = ",".join("?" * len(ob["classes"]))
+            strong = {
+                int(r[0])
+                for r in c.db.q(f"SELECT DISTINCT media_id FROM objects WHERE cls IN ({cls}) AND score >= ? AND media_id IN ({marks})", [*ob["classes"], det_sure, *chunk])
+            }
+            out |= set(chunk) - strong
+    return out
 
 
 def _text_thresholds(c: Context) -> tuple[float, float]:

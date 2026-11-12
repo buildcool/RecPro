@@ -36,6 +36,8 @@ THRESHOLDS: dict[str, dict[str, tuple[float, float]]] = {
     "ocr": {"never_miss": (0.50, 0.90), "balanced": (0.50, 0.90), "fewer": (0.55, 0.90)},
     # file facts: named like a screenshot (0.9), screen-sized without a camera (0.55-0.75)
     "file": {"never_miss": (0.50, 0.85), "balanced": (0.55, 0.85), "fewer": (0.65, 0.85)},
+    # the object detector (D-FINE) found the thing in the photo, scaled down when it's tiny
+    "det": {"never_miss": (0.30, 0.60), "balanced": (0.40, 0.60), "fewer": (0.50, 0.55)},
 }
 
 STRICT_GROUPS = ("mood", "people", "entertainment", "quality")

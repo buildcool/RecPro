@@ -15,6 +15,7 @@ SERVICE_MODULES = [
     ("indexer", "recpro.jobs.indexer"),
     ("ops", "recpro.ops.service"),
     ("people", "recpro.review.people"),
+    ("pets", "recpro.review.pets"),
     ("labels", "recpro.labels"),
     ("semantic_index", "recpro.semindex"),
     ("taxonomy", "recpro.taxonomy"),

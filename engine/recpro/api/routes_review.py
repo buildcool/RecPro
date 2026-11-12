@@ -23,11 +23,18 @@ class MergeAnswer(BaseModel):
     same: bool
 
 
-def _svc(c: Context):
-    s = c.services.get("people")
+def _svc(c: Context, kind: str = "human"):
+    s = c.services.get("pets" if kind == "pet" else "people")
     if s is None:
-        raise HTTPException(503, "People service unavailable")
+        raise HTTPException(503, "Pets service unavailable" if kind == "pet" else "People service unavailable")
     return s
+
+
+def _kind(c: Context, pid: int) -> str:
+    k = c.db.scalar("SELECT kind FROM people WHERE id=?", (pid,))
+    if k is None:
+        raise HTTPException(404, "Person not found")
+    return str(k)
 
 
 @router.get("/api/review/counts")
@@ -36,30 +43,41 @@ def counts(c: Context = Depends(ctx)) -> dict[str, int]:
 
 
 @router.get("/api/review/faces")
-def review_faces(person_id: int | None = None, limit: int = 12, c: Context = Depends(ctx)) -> dict[str, Any]:
-    return _svc(c).review_faces(person_id, min(max(limit, 1), 48))
+def review_faces(person_id: int | None = None, limit: int = 12, kind: str = "human", c: Context = Depends(ctx)) -> dict[str, Any]:
+    """"Is this …?": a person's faces to check, or with kind=pet (or a pet's id) a pet's animals."""
+    if person_id is not None:
+        kind = _kind(c, person_id)
+    return _svc(c, kind).review_faces(person_id, min(max(limit, 1), 48))
 
 
 @router.post("/api/review/faces/answer")
 def answer_faces(body: FaceAnswer, c: Context = Depends(ctx)) -> dict[str, Any]:
     if not body.yes and not body.no:
         raise HTTPException(400, "Nothing to answer")
-    return _svc(c).answer(body.person_id, body.yes, body.no)
+    return _svc(c, _kind(c, body.person_id)).answer(body.person_id, body.yes, body.no)
 
 
 @router.post("/api/review/undo")
 def undo(c: Context = Depends(ctx)) -> dict[str, Any]:
-    return {"undone": _svc(c).undo_last()}
+    """Takes back the last answer, about a person or a pet, whichever came last."""
+    svcs = [s for s in (c.services.get("people"), c.services.get("pets")) if s is not None]
+    if not svcs:
+        raise HTTPException(503, "People service unavailable")
+    last = max(svcs, key=lambda s: s.last_answer_at)  # type: ignore[attr-defined]
+    return {"undone": last.undo_last()}  # type: ignore[attr-defined]
 
 
 @router.get("/api/review/merge")
-def merge_suggestions(limit: int = 10, c: Context = Depends(ctx)) -> list[dict[str, Any]]:
-    return _svc(c).merge_suggestions(limit)
+def merge_suggestions(limit: int = 10, kind: str = "human", c: Context = Depends(ctx)) -> list[dict[str, Any]]:
+    return _svc(c, kind).merge_suggestions(limit)
 
 
 @router.post("/api/review/merge/answer")
 def merge_answer(body: MergeAnswer, c: Context = Depends(ctx)) -> dict[str, Any]:
-    svc = _svc(c)
+    kind = _kind(c, body.a)
+    if _kind(c, body.b) != kind:
+        raise HTTPException(400, "A pet and a person can't be merged.")
+    svc = _svc(c, kind)
     if body.same:
         a = c.db.q1("SELECT id, name FROM people WHERE id=?", (body.a,))
         b = c.db.q1("SELECT id, name FROM people WHERE id=?", (body.b,))
@@ -135,5 +153,5 @@ def hidden_answer(person_id: int, body: HiddenAnswer, c: Context = Depends(ctx))
 
 
 @router.get("/api/review/name")
-def name_suggestions(limit: int = 8, c: Context = Depends(ctx)) -> list[dict[str, Any]]:
-    return _svc(c).name_suggestions(limit)
+def name_suggestions(limit: int = 8, kind: str = "human", c: Context = Depends(ctx)) -> list[dict[str, Any]]:
+    return _svc(c, kind).name_suggestions(limit)

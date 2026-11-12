@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Calendar, Film, FolderOpen, Lock, MapPin, Search as SearchIcon, Smile, Tag, UserRound, Users, X } from 'lucide-react';
+import { Box, Calendar, Film, FolderOpen, Lock, MapPin, PawPrint, Search as SearchIcon, Smile, Tag, UserRound, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { Badge, EmptyState, Spinner, TextInput } from '../components/ui';
@@ -11,7 +11,7 @@ import { num } from '../lib/format';
 import type { MediaItem } from '../lib/types';
 
 type Parsed = {
-  people: { id: number; name: string }[];
+  people: { id: number; name: string; kind?: 'human' | 'pet' }[];
   years: number[];
   months: number[];
   kind: string | null;
@@ -20,6 +20,7 @@ type Parsed = {
   emotion: string | null;
   size: [number, number] | null;
   labels: { id: number; name: string }[];
+  objects?: { name: string; classes: number[] }[]; // things the object detector knows by name
   folders: { id: number; name: string }[];
   places?: { name: string; ids: number[] }[];
   text: string;
@@ -53,7 +54,14 @@ export function SearchPage() {
     const p = data?.parsed;
     if (!p) return [];
     const out: { key: string; icon: React.ReactNode; label: string; remove: Record<string, unknown> }[] = [];
-    p.people.forEach((x) => out.push({ key: `p${x.id}`, icon: <UserRound className="size-3.5" />, label: x.name, remove: { people: p.people.filter((y) => y.id !== x.id) } }));
+    p.people.forEach((x) =>
+      out.push({
+        key: `p${x.id}`,
+        icon: x.kind === 'pet' ? <PawPrint className="size-3.5" /> : <UserRound className="size-3.5" />,
+        label: x.name,
+        remove: { people: p.people.filter((y) => y.id !== x.id) },
+      }),
+    );
     if (p.years.length) out.push({ key: 'years', icon: <Calendar className="size-3.5" />, label: p.years.join(', '), remove: { years: [] } });
     if (p.months.length) out.push({ key: 'months', icon: <Calendar className="size-3.5" />, label: p.months.map((m) => MONTH[m]).join(', '), remove: { months: [] } });
     if (p.kind) out.push({ key: 'kind', icon: <Film className="size-3.5" />, label: p.kind === 'video' ? 'Videos' : 'Photos', remove: { kind: null } });
@@ -66,7 +74,10 @@ export function SearchPage() {
       });
     if (p.size) out.push({ key: 'size', icon: <Users className="size-3.5" />, label: p.size[0] === 1 && p.size[1] === 1 ? 'Alone' : p.size[0] === 2 && p.size[1] === 2 ? 'Two people' : `${p.size[0]}+ people`, remove: { size: null } });
     if (p.emotion) out.push({ key: 'emo', icon: <Smile className="size-3.5" />, label: p.emotion, remove: { emotion: null } });
-    p.labels.forEach((l) => out.push({ key: `l${l.id}`, icon: <Tag className="size-3.5" />, label: l.name, remove: { labels: [] } }));
+    p.labels.forEach((l) => out.push({ key: `l${l.id}`, icon: <Tag className="size-3.5" />, label: l.name, remove: { labels: p.labels.filter((y) => y.id !== l.id) } }));
+    (p.objects ?? []).forEach((o, i) =>
+      out.push({ key: `o${i}`, icon: <Box className="size-3.5" />, label: o.name, remove: { objects: (p.objects ?? []).filter((_, j) => j !== i) } }),
+    );
     p.folders.forEach((f) => out.push({ key: `f${f.id}`, icon: <FolderOpen className="size-3.5" />, label: f.name, remove: { folders: [] } }));
     (p.places ?? []).forEach((pl, i) =>
       out.push({ key: `pl${i}`, icon: <MapPin className="size-3.5" />, label: pl.name, remove: { places: (p.places ?? []).filter((_, j) => j !== i) } }),

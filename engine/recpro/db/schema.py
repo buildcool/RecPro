@@ -278,4 +278,42 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX pending_answers_hash ON pending_answers(hash);
     """,
+    # v10 — things and animals found by the object detector, and pets: an animal you can name is
+    # a "person" of kind 'pet', grouped and asked about like faces (animals mirror faces)
+    """
+    ALTER TABLE media ADD COLUMN obj_v INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE objects(
+      media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+      frame_ms INTEGER,
+      cls INTEGER NOT NULL,  -- Objects365 class, ml/objects.py LABELS
+      score REAL NOT NULL,
+      x1 REAL NOT NULL, y1 REAL NOT NULL, x2 REAL NOT NULL, y2 REAL NOT NULL
+    );
+    CREATE INDEX objects_media ON objects(media_id);
+    CREATE INDEX objects_cls ON objects(cls, score);
+    CREATE TABLE animals(
+      id INTEGER PRIMARY KEY,
+      media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+      frame_ms INTEGER,
+      species TEXT NOT NULL,
+      x1 REAL NOT NULL, y1 REAL NOT NULL, x2 REAL NOT NULL, y2 REAL NOT NULL,
+      det_score REAL NOT NULL,
+      quality REAL NOT NULL,
+      embedding BLOB NOT NULL,
+      person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+      state TEXT NOT NULL DEFAULT 'none',
+      score REAL
+    );
+    CREATE INDEX animals_media ON animals(media_id);
+    CREATE INDEX animals_person ON animals(person_id, state);
+    CREATE INDEX animals_state ON animals(state);
+    CREATE TABLE animal_votes(
+      animal_id INTEGER NOT NULL REFERENCES animals(id) ON DELETE CASCADE,
+      person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+      vote INTEGER NOT NULL,
+      at REAL NOT NULL,
+      PRIMARY KEY(animal_id, person_id)
+    );
+    ALTER TABLE people ADD COLUMN species TEXT;
+    """,
 ]

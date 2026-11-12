@@ -46,11 +46,12 @@ def _filters(
     if kind in ("image", "video"):
         where.append("m.kind=?")
         params.append(kind)
-    if person_id is not None:
+    if person_id is not None:  # a person's faces, or a pet's animals
         where.append(
-            "EXISTS (SELECT 1 FROM faces f WHERE f.media_id=m.id AND f.person_id=? AND f.state IN ('confirmed','auto','cluster'))"
+            "(EXISTS (SELECT 1 FROM faces f WHERE f.media_id=m.id AND f.person_id=? AND f.state IN ('confirmed','auto','cluster'))"
+            " OR EXISTS (SELECT 1 FROM animals a WHERE a.media_id=m.id AND a.person_id=? AND a.state IN ('confirmed','auto','cluster')))"
         )
-        params.append(person_id)
+        params += [person_id, person_id]
     if label_id is not None:
         where.append("EXISTS (SELECT 1 FROM media_labels ml WHERE ml.media_id=m.id AND ml.label_id=? AND ml.state!='rejected' AND (ml.tier='sure' OR ml.state='confirmed'))")
         params.append(label_id)
@@ -208,6 +209,15 @@ def media_detail(media_id: int, c: Context = Depends(ctx)) -> dict[str, Any]:
     text = c.db.scalar("SELECT group_concat(content, ' ') FROM texts WHERE media_id=?", (media_id,))
     d = {k: r[k] for k in r.keys() if k not in ("phash", "quick_hash", "content_hash")}
     d["faces"] = [dict(f) for f in faces]
+    d["animals"] = [
+        dict(a)
+        for a in c.db.q(
+            """SELECT a.id, a.x1, a.y1, a.x2, a.y2, a.species, a.person_id, p.name AS person_name, a.state, a.score
+               FROM animals a LEFT JOIN people p ON p.id=a.person_id WHERE a.media_id=? AND a.frame_ms IS NULL ORDER BY a.x1""",
+            (media_id,),
+        )
+    ]
+    d["things"] = things(c, media_id)
     d["labels"] = [dict(l) for l in labels]
     if r["kind"] == "video":
         from ..review.moments import face_spans, label_spans
@@ -395,22 +405,54 @@ def range_response(path: Path, mime: str, range_header: str | None) -> Response:
     return StreamingResponse(body(), status_code=206, media_type=mime, headers=headers)
 
 
+THINGS_MIN = 0.5  # a thing named in a photo's details
+
+
+def things(c: Context, media_id: int) -> list[dict[str, Any]]:
+    """What the object detector saw in a photo, by name, most certain first (people left out)."""
+    from ..ml.objects import CLASS, display
+
+    rows = c.db.q(
+        "SELECT cls, MAX(score) AS score, COUNT(*) AS n FROM objects WHERE media_id=? AND score >= ? AND cls != ? GROUP BY cls ORDER BY score DESC",
+        (media_id, THINGS_MIN, CLASS["Person"]),
+    )
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        name = display(int(r["cls"]))
+        cur = out.get(name)
+        if cur is None:
+            out[name] = {"name": name, "score": round(float(r["score"]), 3), "count": int(r["n"])}
+        else:  # two classes with one name (shoes): count both
+            cur["count"] += int(r["n"])
+    return list(out.values())[:16]
+
+
 @router.get("/media/face/{face_id}")
 def face_crop(face_id: int, size: int = Query(160, ge=48, le=512), c: Context = Depends(ctx)) -> Response:
-    f = c.db.q1("SELECT f.*, m.sens_state, m.path, m.kind, m.duration, m.mtime FROM faces f JOIN media m ON m.id=f.media_id WHERE f.id=?", (face_id,))
+    return _crop(c, "faces", face_id, size)
+
+
+@router.get("/media/animal/{animal_id}")
+def animal_crop(animal_id: int, size: int = Query(160, ge=48, le=512), c: Context = Depends(ctx)) -> Response:
+    return _crop(c, "animals", animal_id, size)
+
+
+def _crop(c: Context, table: str, face_id: int, size: int) -> Response:
+    f = c.db.q1(f"SELECT f.*, m.sens_state, m.path, m.kind, m.duration, m.mtime FROM {table} f JOIN media m ON m.id=f.media_id WHERE f.id=?", (face_id,))
     if f is None:
         raise HTTPException(404, "Not found")
     if f["sens_state"] in ("private", "review"):
         priv = c.services.get("private")
         if not (priv and priv.is_unlocked()):  # type: ignore[attr-defined]
             return Response(LOCKED_SVG, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
-    cache = c.paths.faces / f"{face_id // 1000:04d}" / f"{face_id}_{size}.webp"
+    sub = "" if table == "faces" else "animals"
+    cache = c.paths.faces / sub / f"{face_id // 1000:04d}" / f"{face_id}_{size}.webp"
     if f["sens_state"] not in ("private", "review") and cache.exists():
         return FileResponse(cache, media_type="image/webp", headers=CACHE)
     from ..library.facecrop import crop_face
 
     try:
-        img = crop_face(c, f, size)
+        img = crop_face(c, f, size) if table == "faces" else crop_face(c, f, size, pad=1.12, lift=0.0)
     except FileNotFoundError:
         return Response(PENDING_SVG, media_type="image/svg+xml", headers={"Cache-Control": "no-store"})
     if f["sens_state"] in ("private", "review"):

@@ -1,4 +1,4 @@
-"""Find people across folders: tiered results (Sure / Please check), grouped by folder."""
+"""Find people (and pets) across folders: tiered results (Sure / Please check), grouped by folder."""
 from __future__ import annotations
 
 import os
@@ -8,8 +8,8 @@ from typing import Any
 import numpy as np
 
 from ..context import Context
+from ..ml.objects import OBJ_V
 from .faceindex import topk_mean_sim
-from .people import MIN_Q_AUTO
 
 
 def _scope_sql(c: Context, folder_ids: list[int] | None, kinds: list[str] | None, date_from: float | None, date_to: float | None) -> tuple[str, list[Any]]:
@@ -44,17 +44,34 @@ def search_people(
     t0 = time.time()
     svc = c.services["people"]
     db = c.db
-    sure_thr, check_thr = svc.thresholds()  # type: ignore[attr-defined]
     where, params = _scope_sql(c, folder_ids, kinds, date_from, date_to)
+    asked = [*people_ids, *(exclude_ids or [])]
+    who = db.q(f"SELECT id, kind, species FROM people WHERE id IN ({','.join('?' * len(asked))})", asked) if asked else []
+    kind_of = {int(r["id"]): r["kind"] for r in who}
+    species_of = {int(r["id"]): r["species"] for r in who if r["species"]}  # a pet matches its own species only
+    pets_asked = any(kind_of.get(int(p)) == "pet" for p in asked)
 
-    faces = db.q(
-        f"""SELECT f.id, f.media_id, f.person_id, f.state, f.quality FROM faces f JOIN media m ON m.id=f.media_id WHERE {where}""",
-        params,
-    )
+    # Each kind of sighting with what's needed to score it: a person's faces, a pet's animals.
+    seen: dict[str, tuple[Any, list[int], dict[int, Any], np.ndarray, dict[int, set[int]], float, float]] = {}
+
+    def sightings(kind: str):
+        if kind not in seen:
+            s_ = c.services["pets" if kind == "pet" else "people"]
+            extra = ", f.species" if kind == "pet" else ""
+            rows_ = db.q(f"SELECT f.id, f.media_id, f.person_id, f.state, f.quality{extra} FROM {s_.T} f JOIN media m ON m.id=f.media_id WHERE {where}", params)  # type: ignore[attr-defined]
+            ids_ = [r["id"] for r in rows_]
+            vec = s_.index.vectors(ids_) if ids_ else np.zeros((0, s_.DIM), np.float32)  # type: ignore[attr-defined]
+            sure_, check_ = s_.thresholds()  # type: ignore[attr-defined]
+            seen[kind] = (s_, ids_, {r["id"]: r for r in rows_}, vec, s_._no_votes(ids_) if ids_ else {}, sure_, check_)  # type: ignore[attr-defined]
+        return seen[kind]
+
+    _, face_ids, by_face, _, _, _, _ = sightings("human")
+    faces = list(by_face.values())
     scanned = db.scalar(f"SELECT COUNT(*) FROM media m WHERE {where}", params, default=0)
+    pets_pending = f" OR m.obj_v < {OBJ_V}" if pets_asked else ""
     pending = db.scalar(
         f"""SELECT COUNT(*) FROM media m WHERE {where} AND m.width IS NOT NULL
-            AND ((m.kind='image' AND m.deep_v < 1) OR (m.kind='video' AND m.video_v < 1))""",
+            AND ((m.kind='image' AND (m.deep_v < 1{pets_pending})) OR (m.kind='video' AND m.video_v < 1))""",
         params,
         default=0,
     )
@@ -65,11 +82,15 @@ def search_people(
         if ix is not None:
             ix.focus(fids)  # type: ignore[attr-defined]
 
-    face_ids = [f["id"] for f in faces]
-    by_face = {f["id"]: f for f in faces}
+    def kind(pid: int | None) -> str:
+        return kind_of.get(int(pid), "human") if pid is not None else "human"
+
+    def exemplars(pid: int) -> np.ndarray:
+        return sightings(kind(pid))[0].exemplars(pid)
+
     targets: list[tuple[str, int | None, np.ndarray]] = []
     for pid in people_ids:
-        targets.append((f"p{pid}", pid, svc.exemplars(pid)))  # type: ignore[attr-defined]
+        targets.append((f"p{pid}", pid, exemplars(pid)))
     if ref_tokens:
         refs = [svc.reference(t) for t in ref_tokens]  # type: ignore[attr-defined]
         refs = [r for r in refs if r is not None]
@@ -77,19 +98,21 @@ def search_people(
             targets.append(("ref", None, np.stack(refs)))
     excl = []
     for pid in exclude_ids or []:
-        excl.append((f"x{pid}", pid, svc.exemplars(pid)))  # type: ignore[attr-defined]
-
-    nov = svc._no_votes(face_ids) if face_ids else {}  # type: ignore[attr-defined]
-    F = svc.index.vectors(face_ids) if face_ids else np.zeros((0, 512), np.float32)  # type: ignore[attr-defined]
+        excl.append((f"x{pid}", pid, exemplars(pid)))
 
     def tier_for(key_pid: int | None, E: np.ndarray) -> dict[int, tuple[str, float, int]]:
-        """media_id -> (tier, score, face_id) for one target."""
+        """media_id -> (tier, score, face_id) for one target (a pet's: its animals)."""
         out: dict[int, tuple[str, float, int]] = {}
-        if len(face_ids) == 0:
+        own, det_ids, by_det, F, nov, sure_thr, check_thr = sightings(kind(key_pid))
+        min_q = own.MIN_Q_AUTO
+        if len(det_ids) == 0:
             return out
-        s = topk_mean_sim(F, E) if len(E) else np.full(len(face_ids), -1.0, np.float32)
-        for i, fid in enumerate(face_ids):
-            f = by_face[fid]
+        s = topk_mean_sim(F, E) if len(E) else np.full(len(det_ids), -1.0, np.float32)
+        want = species_of.get(int(key_pid)) if key_pid is not None else None
+        for i, fid in enumerate(det_ids):
+            f = by_det[fid]
+            if want and f["species"] != want:
+                continue
             sc = float(s[i])
             st, owner = f["state"], f["person_id"]
             if key_pid is not None:
@@ -104,16 +127,16 @@ def search_people(
                 elif owner == key_pid and st == "cluster":
                     tier = "sure"
                 elif owner == key_pid and st == "suggested":
-                    tier = "sure" if sc >= sure_thr and f["quality"] >= MIN_Q_AUTO else "check"
+                    tier = "sure" if sc >= sure_thr and f["quality"] >= min_q else "check"
                 else:
-                    if sc >= sure_thr and f["quality"] >= MIN_Q_AUTO:
+                    if sc >= sure_thr and f["quality"] >= min_q:
                         tier = "sure"
                     elif sc >= check_thr:
                         tier = "check"
                     else:
                         continue
             else:
-                if sc >= sure_thr and f["quality"] >= MIN_Q_AUTO:
+                if sc >= sure_thr and f["quality"] >= min_q:
                     tier = "sure"
                 elif sc >= check_thr:
                     tier = "check"
@@ -139,6 +162,8 @@ def search_people(
     # every searched person's face in a media (a video shows when each is on screen)
     matched: dict[int, set[tuple[int, int | None]]] = {}
     for _, pid, d in per_target:
+        if kind(pid) == "pet":
+            continue  # pets are found in photos only
         for mid, (_, _, fid) in d.items():
             if fid is not None:
                 matched.setdefault(mid, set()).add((fid, pid if pid is not None else by_face[fid]["person_id"]))
@@ -174,7 +199,7 @@ def search_people(
 
     # "Rohit may also be in N photos where his face isn't visible": a pointer to Review
     hidden_more = 0
-    if len(people_ids) == 1 and not ref_tokens:
+    if len(people_ids) == 1 and not ref_tokens and kind(people_ids[0]) == "human":
         from ..api.visibility import private_hidden
         from .hidden import suggestions
 
@@ -219,6 +244,7 @@ def search_people(
                 "tier": v["tier"],
                 "score": round(v["score"], 3),
                 "face_id": v["face_id"],
+                "det": "animal" if kind(v["person_id"]) == "pet" else "face",  # which crop face_id is
                 "person_id": v["person_id"],
                 "person_name": names.get(v["person_id"]),
                 "folder": folder,
