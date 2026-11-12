@@ -15,6 +15,10 @@ from ..context import Context
 
 log = logging.getLogger("recpro.indexer")
 
+# A batch that ran out of graphics memory (a game or another app took it) is tried again this
+# often, with its models loaded afresh, before its photos are marked as failed
+OOM_RETRIES = 3
+
 
 class Stage(Protocol):
     name: str
@@ -39,6 +43,7 @@ class Indexer:
         self._stop = threading.Event()
         self._rates: dict[str, deque[tuple[float, int]]] = {}
         self._focus: set[int] = set()
+        self._oom: dict[str, int] = {}  # stage -> batches in a row that ran out of graphics memory
         self._last_status: dict | None = None
         self.current: str | None = None
 
@@ -129,18 +134,11 @@ class Indexer:
                 if not rows:
                     continue
                 self.current = st.name
-                t0 = time.time()
-                try:
-                    st.process(rows)
-                    if st.name in ("quick", "deep", "video"):
-                        self._apply_imported(rows)
-                except Exception:
-                    log.exception("stage %s failed on a batch; marking rows so they don't loop", st.name)
-                    with self.db.tx() as c:
-                        c.executemany(
-                            f"UPDATE media SET {st.column}=?, error=COALESCE(error,'') || ? WHERE id=?",
-                            [(st.version, f"[{st.name} failed]", r["id"]) for r in rows],
-                        )
+                if not self._process(st, rows):
+                    self._wake.wait(10.0)  # give the card a moment
+                    self._wake.clear()
+                    did = True
+                    break
                 self._rates[st.name].append((time.time(), len(rows)))
                 self.ctx.events.publish_throttled("media.updated", {"stage": st.name}, interval=1.5)
                 did = True
@@ -149,6 +147,34 @@ class Indexer:
             if not did:
                 self._wake.wait(5.0)
                 self._wake.clear()
+
+    def _process(self, st: Stage, rows: list[Any]) -> bool:
+        """Runs one batch. False when it ran out of graphics memory and should be tried again shortly;
+        any other failure marks its rows so they don't loop."""
+        try:
+            st.process(rows)
+            if st.name in ("quick", "deep", "video", "objects"):
+                self._apply_imported(rows)
+        except Exception as e:
+            from ..ml.runtime import out_of_gpu_memory
+
+            if out_of_gpu_memory(e) and self._oom.get(st.name, 0) < OOM_RETRIES:
+                self._oom[st.name] = self._oom.get(st.name, 0) + 1
+                log.warning(
+                    "stage %s ran out of graphics memory (another app may be using it); trying again with its models loaded afresh", st.name
+                )
+                ml = self.ctx.services.get("ml")
+                if ml is not None:
+                    ml.release_all()  # type: ignore[attr-defined]
+                return False
+            log.exception("stage %s failed on a batch; marking rows so they don't loop", st.name)
+            with self.db.tx() as c:
+                c.executemany(
+                    f"UPDATE media SET {st.column}=?, error=COALESCE(error,'') || ? WHERE id=?",
+                    [(st.version, f"[{st.name} failed]", r["id"]) for r in rows],
+                )
+        self._oom.pop(st.name, None)
+        return True
 
     def _apply_imported(self, rows: list) -> None:
         """Answers imported from a file that were waiting for these photos (or their faces)."""

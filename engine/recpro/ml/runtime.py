@@ -137,6 +137,16 @@ def session(path: Path | str, use_gpu: bool = True, threads: int | None = None):
     return sess
 
 
+# What ONNX Runtime says when the graphics card is out of memory (a game or another app took it);
+# cuDNN reports it as a failed workspace or an internal error
+_OOM_SIGNS = ("out of memory", "cudaErrorMemoryAllocation", "ALLOC_FAILED", "CUDNN_FE failure", "CUDNN_BACKEND_API_FAILED", "CUDNN_STATUS_INTERNAL_ERROR")
+
+
+def out_of_gpu_memory(e: BaseException) -> bool:
+    msg = str(e)
+    return any(s in msg for s in _OOM_SIGNS)
+
+
 def gpu_name() -> str | None:
     global _gpu_name
     if _gpu_name is not False:

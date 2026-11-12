@@ -65,6 +65,15 @@ class ML:
             log.info("released after %.0f s idle: %s", idle_s, ", ".join(freed))
         return freed
 
+    def release_all(self) -> None:
+        """Lets go of every model (after the graphics card ran out of memory): each loads again when
+        next needed, on the processor if the card is still full."""
+        with self._lock:
+            self._engines.clear()
+            self._used.clear()
+        gc.collect()
+        log.info("released every model; they load again when needed")
+
     def _hand_out(self, key: str, eng: Any) -> Any:
         self._used[key] = time.monotonic()
         return eng
