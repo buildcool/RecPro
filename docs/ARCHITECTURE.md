@@ -56,22 +56,26 @@ Key pieces: `app/AppShell.tsx` (top bar, sidebar, status bar), `app/CommandPalet
 Each stage owns a version column on `media`. A row needs a stage while its column is below the stage version. All state is in the database, so indexing resumes after a restart, and changing a stage's version re-runs just that stage.
 
 1. **Quick pass** (`jobs/quick.py`, CPU, parallel): EXIF date (with filename and file-time fallbacks), dimensions after rotation, camera, GPS, video duration/codec, a 400 px WebP thumbnail (JPEG draft decoding for speed), a 64-bit DCT perceptual hash and the quick hash.
-2. **Private pre-check**: a fast sensitivity check on the thumbnail before it is shown *(M3)*.
-3. **Deep pass**: decode once, run every model batched on the GPU: faces, embeddings, attributes, SigLIP 2, sensitive ensemble, objects, quality *(M2–M4)*.
-4. **Text pass** (`jobs/text.py`): reads the words in photos whose stored category scores say document, ID card, screenshot or meme (or whose file looks like a screenshot), then finds ID documents and screenshot apps. See [Text in photos](#text-in-photos-mlocrpy-jobstextpy-idspy-screenspy).
-5. **Quality pass** (`jobs/quality.py`): brightness, highlights and sharpness of each photo, from its thumbnail, for Cleanup.
-6. **Places pass** (`jobs/places.py`): the town, and the city it belongs to, of every photo and video with a GPS position, from the place table shipped with the engine. See [Places](#places-libraryplacespy-jobsplacespy-apiroutes_placespy).
-7. **Video pass** (`jobs/video.py`): each video watched once: faces tracked into one face per person with the time spans they're on screen, private content and categories with their spans, and scene frames for searching moments. See [Videos](#videos-jobsvideopy-mltrackspy-framelabelspy-libraryvideopy).
-8. **Speech pass** (`jobs/speech.py`): what is said in each video, with times. The last and slowest stage.
-9. **Grouping**: clustering, person matching, tiers and the review queue run all the time *(M2)*. Duplicates, trips and events are worked out when asked for (see [Cleanup](#cleanup-cleanuppy-jobsqualitypy) and [Trips](#trips-events-and-on-this-day-memoriespy)).
+2. **Private check** (`jobs/sens.py`): NudeNet on every photo before it's shown unblurred. See [Private content](#private-content-jobssenspy-jobssemanticpy-labelspy-privatepy).
+3. **Deep pass** (`jobs/deep.py`): faces, with age, gender and expression. See [Faces and people](#faces-and-people-mlfacespy-review).
+4. **Semantic pass** (`jobs/semantic.py`): a SigLIP 2 embedding of each photo, for search and the categories.
+5. **Objects pass** (`jobs/objects.py`): the things and animals in each photo, with their boxes, and how each dog, cat, rabbit or parrot looks. See [Things and pets](#things-and-pets-mlobjectspy-jobsobjectspy-mlpetlookpy-reviewpetspy).
+6. **Text pass** (`jobs/text.py`): reads the words in photos whose stored category scores say document, ID card, screenshot or meme (or whose file looks like a screenshot), then finds ID documents and screenshot apps. See [Text in photos](#text-in-photos-mlocrpy-jobstextpy-idspy-screenspy).
+7. **Quality pass** (`jobs/quality.py`): brightness, highlights and sharpness of each photo, from its thumbnail, for Cleanup.
+8. **Places pass** (`jobs/places.py`): the town, and the city it belongs to, of every photo and video with a GPS position, from the place table shipped with the engine. See [Places](#places-libraryplacespy-jobsplacespy-apiroutes_placespy).
+9. **Video pass** (`jobs/video.py`): each video watched once: faces tracked into one face per person with the time spans they're on screen, private content and categories with their spans, and scene frames for searching moments. See [Videos](#videos-jobsvideopy-mltrackspy-framelabelspy-libraryvideopy).
+10. **Speech pass** (`jobs/speech.py`): what is said in each video, with times. The last and slowest stage.
+11. **Grouping**: clustering, person matching, tiers and the review queue run all the time *(M2)*. Duplicates, trips and events are worked out when asked for (see [Cleanup](#cleanup-cleanuppy-jobsqualitypy) and [Trips](#trips-events-and-on-this-day-memoriespy)).
 
 The UI's status bar and Home page show per-stage progress and rate; folders being searched right now are processed first (`Indexer.focus`).
 
+A batch that fails is marked on its photos so it doesn't loop, except when the graphics card ran out of memory (a game or another app took it): then every model is let go and the batch is tried again, up to three times, with the models loaded afresh (on the processor if the card is still full).
+
 ### Data model (SQLite)
 
-`folders` · `media` (path, size, mtime, hashes, dimensions, taken_at, GPS, kind, duration, stage versions, private state, quality facts, town and city) · `people` · `faces` (box, landmarks, quality, embedding, person, state, score) · `face_votes` (your yes/no answers) · `media_people` (photos a person is in without a visible face) · `ref_faces` (faces from photos you dropped in) · `labels` (taxonomy, prompts, thresholds) · `media_labels` (score, tier, state, time range) · `embeddings` · `texts` and `speech` (FTS5, trigram) · `places` (the towns photos are in) · `saved_searches` · `pending_answers` (imported answers waiting for their photos) · `operations` + `op_items` (file-operation journal) · `settings`.
+`folders` · `media` (path, size, mtime, hashes, dimensions, taken_at, GPS, kind, duration, stage versions, private state, quality facts, town and city) · `people` (kind: a person or a pet, with its species) · `faces` (box, landmarks, quality, embedding, person, state, score) · `face_votes` (your yes/no answers) · `objects` (the detector's things: class, score, box) · `animals` (the dogs, cats, rabbits and parrots to tell apart: species, box, quality, look, pet, state, score) · `animal_votes` · `media_people` (photos a person is in without a visible face) · `ref_faces` (faces from photos you dropped in) · `labels` (taxonomy, prompts, thresholds) · `media_labels` (score, tier, state, time range) · `embeddings` · `texts` and `speech` (FTS5, trigram) · `places` (the towns photos are in) · `saved_searches` · `pending_answers` (imported answers waiting for their photos) · `operations` + `op_items` (file-operation journal) · `settings`.
 
-Your answers (`face_votes`, `media_people`, confirmed/rejected states) are never overwritten by re-indexing, model upgrades or an import.
+Your answers (`face_votes`, `animal_votes`, `media_people`, confirmed/rejected states) are never overwritten by re-indexing, model upgrades or an import.
 
 ## AI models (`ml/models.py`)
 
@@ -102,6 +106,28 @@ A face is never *Sure* when its quality is below 0.35 or when a second person sc
 **Find** (`review/search.py`) scores every face in the chosen folders against each chosen person (or reference photo), combines them for *any*, *all together* or *alone*, and returns *Sure* and *Please check* tiers grouped by folder, plus the number of hidden private matches. Folders still being analyzed are processed first.
 
 **Index.** Face embeddings live in a growable in-memory float16 index (`review/faceindex.py`) loaded at startup, so matching a person against the library is a chunked matrix multiplication.
+
+## Things and pets (`ml/objects.py`, `jobs/objects.py`, `ml/petlook.py`, `review/pets.py`)
+
+**Detector.** D-FINE X trained on Objects365 (365 classes, Apache-2.0; the ONNX conversion in fp16, 126 MB) sees each photo resized to 640×640 and returns 300 queries with a sigmoid score per class and a box. Detections from 0.30 are kept (at most 100 per photo) in `objects`; the details panel names those from 0.50, with plain names (*Mobile phone*, *Dining table*, *TV or monitor*). The fast set uses D-FINE M (79 MB). Measured on 1,244 Open Images validation photos with human-checked labels, over the 22 categories below: mean average precision 0.93 for X (the same in fp16), 0.91 for L and M; dogs, cats and birds 0.99-1.00, watches 0.93, TVs 0.78 (Objects365 has one class for TVs and monitors).
+
+**Categories.** The detector backs up the Things and Pets categories it can see (laptop, phone, desktop, sofa, fridge, car, motorbike, bicycle, cake and sweets, flowers, guitar, books, watch, jewellery, drinks, dogs, cats, birds, cows, horses, fish) as a fourth source, `det`: please check from 0.30/0.40/0.50 and sure from 0.60/0.60/0.55 (never miss/balanced/fewer questions). A thing smaller than 1% of the photo counts for less (by the square root of its share), so a car far down the street doesn't make a photo of a car; animals count in full from 0.2%. *TV or monitor* backs up neither Television nor Desktop.
+
+**Pets.** A dog, cat, rabbit or parrot the detector scores 0.50 or more, at least 48 px on its shorter side (the photo read at 1280 px), becomes an *animal*: one per box (the same animal guessed as two species is kept once), with a quality from its score and size. Its look is DINOv2 base (Apache-2.0, 347 MB, its own model entry so both sets share it) on a square crop with an 8% margin, averaged with the mirror image: 768 numbers. On DogFaceNet's original photos (2,800 photos of 1,016 dogs, each dog found by the detector and cropped) the nearest photo of a dog is the same dog 81% of the time (DINOv2 small: 75%); two photos of the same dog have a median similarity of 0.79, two different dogs 0.14, and 99.9% of different dogs stay below 0.74.
+
+From there a pet is a person of kind `pet`: `review/pets.py` is the people service (`review/people.py`) with its class settings (the `animals` table, `animal_votes`, DINOv2's thresholds) and two hooks that keep species apart, so a dog is never matched to, grouped with or merged into a cat. Look-alike dogs come closer than look-alike people, so grouping is strict: mutual nearest neighbours above 0.78 (groups of 3 or more become "Whose pet is this?"), new animals join a group above 0.78, groups merge above 0.88 and are asked about above 0.66. In libraries of 3 pets among 40 dogs seen once or twice, drawn 300 times from DogFaceNet, 0.3 groups per library mixed two dogs, against 2.6 when linking from 0.68 (with only 3 photos per pet, 45% of the pets got a group; a pet with dozens of photos links far more easily). A tighter crop or DINOv2's patch tokens instead of its class token didn't help. Matching a named pet:
+
+| Setting | Sure ≥ | Please check ≥ |
+|---|---|---|
+| Never miss | 0.78 | 0.45 |
+| Balanced | 0.76 | 0.52 |
+| Fewer questions | 0.74 | 0.58 |
+
+An animal is never *Sure* below quality 0.45. Your answers, undo, re-scoring and the coverage meter work as for faces; when a photo is read again, an animal found at the same spot keeps its pet and your votes. A pet's page shows the people most often in its photos. Videos aren't searched for pets yet.
+
+**An animal's face isn't a person's.** The face detector takes some dogs and cats looking at the camera for people (6 of the 12 dog photos in the pets samples). A face whose centre is on an animal the object detector found (0.5 or more) and on no person (0.4 or more) becomes state `animal` with quality 0: never grouped, matched, counted or shown as a person. Whichever of the two passes finishes last for a photo makes the check; a face you confirmed stays a person.
+
+**Search.** A pet's name works like a person's (in search and in Find and Move). A query made only of things uses what was found instead of SigLIP: everyday words for the categories above ("dog", "puppies", "sofa", "mobile", "scooty") and the detector's own names and plurals for the rest ("umbrella", "piano", "wine glass", "teddy bear"), all of them together, *Sure* when each one is (a category's tier, a thing seen at 0.60 or more) and *Please check* otherwise. Anything else in the query keeps the whole description for SigLIP.
 
 ## Private content (`jobs/sens.py`, `jobs/semantic.py`, `labels.py`, `private.py`)
 
@@ -210,9 +236,9 @@ A saved search keeps the words and the chips you removed (`saved_searches`). It 
 
 ## Names and answers in a file (`labels_io.py`)
 
-**Export** writes JSON: people (name, birthdate, hidden), their face answers (photo, box, the frame for videos, yes or no), the photos they're in without a visible face, and category answers, with your own categories' descriptions. Photos are identified by the quick hash, never the path. Nothing about private photos or the private categories goes in.
+**Export** writes JSON: people (name, birthdate, hidden), their face answers (photo, box, the frame for videos, yes or no), the photos they're in without a visible face, pets (name, species, birthdate, hidden) with their animal answers (photo, box, yes or no), and category answers, with your own categories' descriptions. Photos are identified by the quick hash, never the path. Nothing about private photos or the private categories goes in.
 
-**Import** makes the people and your categories that aren't there, then applies the answers. A face matches the face found at the same spot (IoU ≥ 0.6, and within 1.5 s in a video). An answer already given on this PC is never changed. Answers for photos not read yet, or faces not found yet, wait in `pending_answers`; the indexer applies them after its quick, deep and video passes.
+**Import** makes the people, pets and your categories that aren't there, then applies the answers. A face matches the face found at the same spot (IoU ≥ 0.6, and within 1.5 s in a video), an animal the animal found at the same spot. An answer already given on this PC is never changed. Answers for photos not read yet, or faces or animals not found yet, wait in `pending_answers`; the indexer applies them after its quick, deep, objects and video passes.
 
 ## XMP sidecars (`xmp.py`)
 

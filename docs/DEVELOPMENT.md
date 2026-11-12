@@ -95,6 +95,14 @@ engine/.venv/Scripts/python -I scripts/make_cleanup_samples.py .testdata/lfw/lfw
 engine/.venv/Scripts/python -I scripts/make_places_samples.py .testdata/lfw/lfw.tgz .testdata/places-samples .testdata/lfw-lib
 ```
 
+### Pets samples
+
+`scripts/make_pets_samples.py` copies four dogs with three photos each from DogFaceNet's original photos, and a few Open Images validation photos with cats, laptops, sofas, guitars and cars, into one folder. Add it to see Pets in People, "Whose pet is this?" in Review and searches for things. The sources are downloaded separately, into `.cache/eval`: DogFaceNet from Hugging Face (`dimidagd/DogFaceNet_large`, unpacked to JPEGs with a `labels.json` of photo to dog) and Open Images' validation labels and photos (`sample.json` of photo to checked labels, photos in `img/`).
+
+```bash
+engine/.venv/Scripts/python -I scripts/make_pets_samples.py .cache/eval/pets/dfn_large .cache/eval/oi .testdata/pets-samples
+```
+
 ### Place table
 
 `engine/recpro/data/places.npz` is built from three GeoNames files (CC BY 4.0). To rebuild it, download them into `.cache/geonames`, then:

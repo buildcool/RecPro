@@ -57,9 +57,15 @@ All notable changes to RecPro. Versions follow [Semantic Versioning](https://sem
 - XMP sidecars for Lightroom, digiKam and other apps, only when you ask: people, categories and place next to each photo, never for private photos and never over another app's sidecar.
 
 - Error screens: a screen that fails says so in its place, with *Try again*, *Go to Home* and details for a bug report, while the rest of the app keeps working; the failure goes to the engine's log on this PC. Start-up says when the engine isn't answering instead of spinning for ever, and anything that fails to load says so once.
+- Things in photos: an object detector (D-FINE, 365 kinds of things) finds what's in each photo and where, on this PC. It backs up the Things and Pets categories (laptops, phones, sofas, cars, dogs, cats…), a photo's details list what's in it, and a search made only of things ("umbrella", "laptop sofa", "puppies", "scooty") uses what was found, with Sure and Please check.
+- Pets: dogs, cats, rabbits and parrots are told apart by how they look and grouped like faces. Name a pet once and RecPro finds its other photos, asks "Is this Bruno?" when it isn't sure, and never mixes up a dog and a cat. Pets have their own section in People, their own page (with the people most often in their photos), a Pets tab in Review, and work in search, Ctrl+K and Find and move. Exported with your names and answers.
 - Accessibility: every screen passes axe-core's WCAG 2.2 AA checks in the light and the dark theme. Stronger contrast for small grey text and white text on blue and purple, photo tiles that work with a keyboard and screen readers (Enter opens, Space selects, and each says what it is and when it was taken), proper headings, and a *Skip to content* link.
 
 ### Fixed
+- Dogs and cats looking at the camera no longer turn up in People as unknown people: a face on an animal the object detector found, and on no person, is left out of people.
+- The People list failed with "no such column" on a SQLite older than 3.39, the one the installed app is built with.
+- A batch of photos that ran out of graphics memory (a game or another app using the card) is tried again with the models loaded afresh, instead of being marked as failed and never read.
+- Category search results are split into Sure and Please check by the category's own tier, and removing one category chip no longer removes all of them.
 - A clean install no longer hangs while preparing photos: SciPy (for the perceptual hash) is loaded at start-up, not first by the quick pass's worker threads, whose load of its BLAS library never finished.
 - New photos no longer land in Private or *Please check* because of a relative score: private content uses SigLIP's absolute probability and NudeNet again (0 of 729 safe photos private, as validated), and stored relative scores are dropped once on upgrade.
 - Documents, chats and bills no longer fill photo categories (a chat about a party as *Party*, a white ID card as *Snow*, a laptop repair invoice as *Laptop*): categories have "it's text" alternatives now.
