@@ -31,9 +31,9 @@ def _seed_pets(ctx, per=8, strangers=4, seed=2):
     with db.tx() as c:
         c.execute("INSERT INTO folders(path, added_at, status) VALUES('X:/pets', ?, 'ready')", (now,))
     dog1, dog2 = _unit(rng.normal(size=DIM)), _unit(rng.normal(size=DIM))
-    cat1 = _unit(dog1 + rng.normal(scale=0.02, size=DIM))
+    cat1 = _unit(dog1 + rng.normal(scale=0.012, size=DIM))  # about 0.83 to the first dog's photos
     looks = [("dog", 0, dog1), ("dog", 1, dog2), ("cat", 2, cat1)]
-    rows = [(sp, k, _unit(cen + rng.normal(scale=0.018, size=DIM))) for sp, k, cen in looks for _ in range(per)]
+    rows = [(sp, k, _unit(cen + rng.normal(scale=0.014, size=DIM))) for sp, k, cen in looks for _ in range(per)]  # about 0.87 apart
     rows += [("dog", -1, _unit(rng.normal(size=DIM))) for _ in range(strangers)]
     truth: dict[int, int] = {}
     with db.tx() as c:
@@ -99,8 +99,8 @@ def test_naming_a_pet_finds_its_new_photos_but_not_the_cat_that_looks_alike(ctx)
     pets.rename(bruno, "Bruno")
     assert ctx.db.scalar("SELECT COUNT(*) FROM animals WHERE person_id=? AND state='auto'", (bruno,)) == 8
     rng = np.random.default_rng(9)
-    new_dog = _add_sighting(ctx, pets, "dog", _unit(dog1 + rng.normal(scale=0.018, size=DIM)))
-    new_cat = _add_sighting(ctx, pets, "cat", _unit(cat1 + rng.normal(scale=0.018, size=DIM)))
+    new_dog = _add_sighting(ctx, pets, "dog", _unit(dog1 + rng.normal(scale=0.014, size=DIM)))
+    new_cat = _add_sighting(ctx, pets, "cat", _unit(cat1 + rng.normal(scale=0.014, size=DIM)))
     pets.assign_pending()
     assert tuple(ctx.db.q1("SELECT person_id, state FROM animals WHERE id=?", (new_dog,))) == (bruno, "auto")
     assert ctx.db.scalar("SELECT person_id FROM animals WHERE id=?", (new_cat,)) != bruno
@@ -158,7 +158,7 @@ def test_pets_through_the_api_search_and_find(ctx):
 
 
 class _Detector:
-    """Stands in for D-FINE: a dog, a laptop and an umbrella in every photo."""
+    """Stands in for D-FINE: a dog, a laptop, an umbrella and a person in every photo."""
 
     def detect_many(self, images, min_score=0.3):
         out = []
@@ -171,6 +171,7 @@ class _Detector:
                 Obj(CLASS["Cat"], 0.55, (0.11, 0.1, 0.8, 0.9)),  # the same animal, a second guess
                 Obj(CLASS["Laptop"], 0.81, (0.5, 0.5, 0.9, 0.9)),
                 Obj(CLASS["Umbrella"], 0.35, (0.0, 0.0, 0.05, 0.05)),
+                Obj(CLASS["Person"], 0.9, (0.6, 0.0, 1.0, 1.0)),  # someone at the right, by the dog
             ])
         return out
 
@@ -191,10 +192,23 @@ def test_the_objects_pass_stores_things_categories_and_animals(ctx, library_dir,
     ctx.services["taxonomy"]  # seeds the categories
     stage = ObjectsStage(ctx)
     rows = ctx.db.q("SELECT * FROM media")
+    # the face detector took the dog's face for a person's in one photo, and found a real face in another
+    first, second = rows[0]["id"], rows[1]["id"]
+    zero = np.zeros(512, np.float16).tobytes()
+    dog_face = ctx.db.x(
+        "INSERT INTO faces(media_id, x1, y1, x2, y2, det_score, quality, embedding, state) VALUES(?, .3, .3, .5, .5, .6, .8, ?, 'cluster')", (first, zero)
+    ).lastrowid
+    ctx.services["people"].index.load_rows(ctx.db.q("SELECT id, media_id, quality, embedding FROM faces"))
+    person_face = ctx.db.x(
+        "INSERT INTO faces(media_id, x1, y1, x2, y2, det_score, quality, embedding, state) VALUES(?, .65, .2, .75, .3, .9, .9, ?, 'none')", (second, zero)
+    ).lastrowid
     stage.process(rows)
+    assert tuple(ctx.db.q1("SELECT state, quality, person_id FROM faces WHERE id=?", (dog_face,))) == ("animal", 0, None)
+    assert dog_face not in ctx.services["people"].index.pos, "an animal's face leaves people"
+    assert ctx.db.scalar("SELECT state FROM faces WHERE id=?", (person_face,)) == "none", "a face on a person stays"
     n = len(rows)
     assert ctx.db.scalar("SELECT COUNT(*) FROM media WHERE obj_v=1") == n
-    assert ctx.db.scalar("SELECT COUNT(*) FROM objects") == 4 * n
+    assert ctx.db.scalar("SELECT COUNT(*) FROM objects") == 5 * n
     assert ctx.db.scalar("SELECT COUNT(*) FROM animals WHERE species='dog'") == n, "one animal per photo, not a dog and a cat"
     dog_tier = ctx.db.q("SELECT ml.tier FROM media_labels ml JOIN labels l ON l.id=ml.label_id WHERE l.key='pet.dog'")
     assert len(dog_tier) == n and {r["tier"] for r in dog_tier} == {"sure"}

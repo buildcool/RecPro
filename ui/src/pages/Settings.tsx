@@ -282,24 +282,41 @@ function UpdatesSection() {
   );
 }
 
-type Counts = { people: number; faces: number; photos: number; categories: number; answers: number };
+type Counts = { people: number; faces: number; photos: number; pets?: number; animals?: number; categories: number; answers: number };
 type ImportResult = Partial<Record<
-  'people_added' | 'people_matched' | 'faces_applied' | 'photos_applied' | 'answers_applied' | 'categories_added' | 'waiting' | 'kept_yours' | 'faces_unmatched' | 'categories_unknown',
+  | 'people_added'
+  | 'people_matched'
+  | 'faces_applied'
+  | 'photos_applied'
+  | 'pets_added'
+  | 'pets_matched'
+  | 'animals_applied'
+  | 'animals_unmatched'
+  | 'answers_applied'
+  | 'categories_added'
+  | 'waiting'
+  | 'kept_yours'
+  | 'faces_unmatched'
+  | 'categories_unknown',
   number
 >>;
 type XmpState = { running: boolean; done: number; total: number; written: number; kept_theirs: number; nothing: number; failed: number; finished_at: number | null; error: string | null };
 
 function importSummary(r: ImportResult) {
   const people = (r.people_added ?? 0) + (r.people_matched ?? 0);
+  const pets = (r.pets_added ?? 0) + (r.pets_matched ?? 0);
   const parts = [
     people ? `${num(people)} ${people === 1 ? 'person' : 'people'}${r.people_added ? ` (${num(r.people_added)} new)` : ''}` : null,
     r.faces_applied || r.photos_applied ? `${num((r.faces_applied ?? 0) + (r.photos_applied ?? 0))} people answers` : null,
+    pets ? `${num(pets)} ${pets === 1 ? 'pet' : 'pets'}${r.pets_added ? ` (${num(r.pets_added)} new)` : ''}` : null,
+    r.animals_applied ? `${num(r.animals_applied)} pet answers` : null,
     r.answers_applied ? `${num(r.answers_applied)} category answers` : null,
   ].filter(Boolean);
   const notes = [
     r.waiting ? `${num(r.waiting)} wait for photos still being read, and apply by themselves` : null,
     r.kept_yours ? `${num(r.kept_yours)} kept the answer you'd already given here` : null,
     r.faces_unmatched ? `${num(r.faces_unmatched)} faces weren't found in their photos` : null,
+    r.animals_unmatched ? `${num(r.animals_unmatched)} animals weren't found in their photos` : null,
   ].filter(Boolean);
   return { title: parts.length ? `Imported ${parts.join(', ')}` : 'Nothing new to import', description: notes.join(' · ') || undefined };
 }
@@ -325,7 +342,8 @@ function YourLabelsSection() {
         const dir = await bridge.pickFolder('Choose where to save your names and answers');
         if (!dir) return;
         const r = await post<{ path: string; counts: Counts }>('/api/answers/export', { folder: dir });
-        toast.success(`Saved ${num(r.counts.people)} people and ${num(r.counts.faces + r.counts.photos + r.counts.answers)} answers`, {
+        const pets = r.counts.pets ? ` and ${num(r.counts.pets)} ${r.counts.pets === 1 ? 'pet' : 'pets'}` : '';
+        toast.success(`Saved ${num(r.counts.people)} people${pets}, and ${num(r.counts.faces + r.counts.photos + (r.counts.animals ?? 0) + r.counts.answers)} answers`, {
           description: r.path,
           action: { label: 'Show', onClick: () => bridge!.showInExplorer(r.path) },
         });
@@ -380,7 +398,7 @@ function YourLabelsSection() {
       title="Your names and answers"
       description="Take the people you named and the answers you gave to another PC, or keep them as a backup. Photos are matched by their content, not where they are, so it works after folders move."
     >
-      <Row label="Export to a file" hint="People, the faces and photos you said are them, and your category answers. Nothing about private photos.">
+      <Row label="Export to a file" hint="People and pets, the faces, animals and photos you said are them, and your category answers. Nothing about private photos.">
         <Button size="sm" icon={<Download className="size-4" />} loading={busy === 'export'} onClick={() => void exportNow()}>
           Export…
         </Button>

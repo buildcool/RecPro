@@ -1,8 +1,9 @@
 """How an animal looks, as numbers: DINOv2 on a square crop around the animal (768 for base).
 
-DINOv2's features tell individual animals apart: on DogFaceNet (300 dogs, aligned faces) the
-nearest photo of a dog is the same dog 96% of the time with the base model. Each crop is averaged
-with its mirror image, so a dog facing left still matches the same dog facing right.
+DINOv2's features tell individual animals apart: on DogFaceNet's original photos (2,800 photos of
+1,016 dogs, cropped where the detector found the dog) the nearest photo of a dog is the same dog
+81% of the time with the base model (small: 75%). Each crop is averaged with its mirror image, so
+a dog facing left still matches the same dog facing right.
 """
 from __future__ import annotations
 

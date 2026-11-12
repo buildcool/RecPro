@@ -197,7 +197,7 @@ def media_detail(media_id: int, c: Context = Depends(ctx)) -> dict[str, Any]:
     faces = c.db.q(
         """SELECT f.id, f.x1, f.y1, f.x2, f.y2, f.person_id, p.name AS person_name, f.state, f.score, f.frame_ms,
                   f.age, f.male, f.emotion
-           FROM faces f LEFT JOIN people p ON p.id=f.person_id WHERE f.media_id=? ORDER BY f.frame_ms, f.x1""",
+           FROM faces f LEFT JOIN people p ON p.id=f.person_id WHERE f.media_id=? AND f.state != 'animal' ORDER BY f.frame_ms, f.x1""",
         (media_id,),
     )
     labels = c.db.q(

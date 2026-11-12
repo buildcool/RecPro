@@ -89,7 +89,7 @@ class People:
 
     def _boot(self) -> None:
         t0 = time.time()
-        rows = self.db.q(f"SELECT id, media_id, quality, embedding FROM {self.T}")
+        rows = self.db.q(f"SELECT id, media_id, quality, embedding FROM {self.T} WHERE state != 'animal'")  # an animal's face isn't a person's
         self.index.load_rows(rows)
         self._fit_calibration()
         self.ready = True
@@ -106,7 +106,9 @@ class People:
         rows = []
         for i in range(0, len(face_ids), 900):
             chunk = face_ids[i : i + 900]
-            rows += self.db.q(f"SELECT id, media_id, quality, embedding FROM {self.T} WHERE id IN ({','.join('?' * len(chunk))})", chunk)
+            rows += self.db.q(
+                f"SELECT id, media_id, quality, embedding FROM {self.T} WHERE state != 'animal' AND id IN ({','.join('?' * len(chunk))})", chunk
+            )
         self.index.load_rows(rows)
         with self._lock:
             self._pending.update(face_ids)
@@ -512,7 +514,7 @@ class People:
         settled = 0
         updates = []
         for fid, r in info.items():
-            if r["state"] == "confirmed" or pid in nov.get(fid, ()):
+            if r["state"] in ("confirmed", "animal") or pid in nov.get(fid, ()):
                 continue
             if r["person_id"] not in (None, pid) and r["state"] != "cluster":
                 continue  # belongs to someone else

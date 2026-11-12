@@ -34,21 +34,24 @@ class Pets(People):
     DIM = 768  # DINOv2 base
     SENS = "sensitivity.faces"  # "How often RecPro asks you" about faces covers pets too
     COUNT_KEYS = ("pets", "pet_name", "pet_merge")
-    # DINOv2 similarities sit higher than ArcFace's. On DogFaceNet with the base model (300 dogs,
-    # aligned faces) the same dog's median is 0.77, two different dogs' 0.17, and 0.70 lets 0.1%
-    # of different dogs through.
-    TIERS = {"never_miss": (0.72, 0.42), "balanced": (0.70, 0.48), "fewer": (0.68, 0.55)}
+    # DINOv2 similarities sit higher than ArcFace's, and look-alike dogs come closer than
+    # look-alike people. On DogFaceNet's original photos (2,800 photos of 1,016 dogs, each dog
+    # found by the detector and cropped) two photos of the same dog have a median similarity of
+    # 0.79 and two different dogs 0.14, with 99.9% of them below 0.74. Grouping links only from
+    # 0.78: in libraries of 3 pets among 40 dogs seen once or twice (drawn 300 times from
+    # DogFaceNet), 0.3 groups per library mixed two dogs, against 2.6 when linking from 0.68.
+    TIERS = {"never_miss": (0.78, 0.45), "balanced": (0.76, 0.52), "fewer": (0.74, 0.58)}
     MIN_Q_AUTO = 0.45
     MARGIN = 0.06
-    CLUSTER_SIM = 0.68
-    CLUSTER_JOIN = 0.70
-    MERGE_AUTO = 0.86
-    MERGE_ASK = 0.60
-    NAMED_ASK = 0.70
+    CLUSTER_SIM = 0.78
+    CLUSTER_JOIN = 0.78
+    MERGE_AUTO = 0.88
+    MERGE_ASK = 0.66
+    NAMED_ASK = 0.74
     MIN_CLUSTER_Q = 0.35
-    SURE_RANGE = (0.64, 0.82)
-    CHECK_FLOOR = 0.35
-    CALIB0 = (0.60, 0.05)
+    SURE_RANGE = (0.72, 0.86)
+    CHECK_FLOOR = 0.40
+    CALIB0 = (0.64, 0.05)
     BUSY = f"SELECT EXISTS(SELECT 1 FROM media WHERE state='active' AND kind='image' AND quick_v>=1 AND width IS NOT NULL AND obj_v<{OBJ_V})"
 
     def _kinds(self, ids) -> dict[int, str]:

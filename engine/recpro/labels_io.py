@@ -5,13 +5,14 @@ RecPro already uses to follow moved files), never by path, so the file still wor
 folders move or on another drive.
 
 In it: each person's name (birthdate, hidden), every face you said is or isn't them, the photos
-you said they're in though their face isn't visible, and every category answer, with your own
-categories' descriptions. Not in it: anything about private photos, or the private categories.
-Those answers stay on this PC.
+you said they're in though their face isn't visible, each pet's name and species with every
+animal you said is or isn't them, and every category answer, with your own categories'
+descriptions. Not in it: anything about private photos, or the private categories. Those answers
+stay on this PC.
 
 Importing never overrides an answer you've already given here. Answers for photos that aren't
 read yet (a new install still going through your folders) wait in the library and apply as the
-photos are read, and faces as they're found.
+photos are read, and faces and animals as they're found.
 """
 from __future__ import annotations
 
@@ -32,7 +33,7 @@ SHOWN = "m.state='active' AND m.quick_hash IS NOT NULL AND m.sens_state NOT IN (
 
 def export(c: Context) -> dict[str, Any]:
     people = []
-    for p in c.db.q("SELECT * FROM people WHERE name IS NOT NULL ORDER BY name COLLATE NOCASE"):
+    for p in c.db.q("SELECT * FROM people WHERE name IS NOT NULL AND kind='human' ORDER BY name COLLATE NOCASE"):
         faces = c.db.q(
             f"""SELECT v.vote, f.x1, f.y1, f.x2, f.y2, f.frame_ms, m.quick_hash FROM face_votes v
                 JOIN faces f ON f.id=v.face_id JOIN media m ON m.id=f.media_id WHERE v.person_id=? AND {SHOWN}
@@ -52,6 +53,21 @@ def export(c: Context) -> dict[str, Any]:
                        "answer": "yes" if f["vote"] > 0 else "no"} for f in faces],
             "photos": [{"photo": r["quick_hash"], "answer": "yes" if r["state"] == "confirmed" else "no"} for r in photos],
         })
+    pets = []
+    for p in c.db.q("SELECT * FROM people WHERE name IS NOT NULL AND kind='pet' ORDER BY name COLLATE NOCASE"):
+        animals = c.db.q(
+            f"""SELECT v.vote, a.x1, a.y1, a.x2, a.y2, m.quick_hash FROM animal_votes v
+                JOIN animals a ON a.id=v.animal_id JOIN media m ON m.id=a.media_id WHERE v.person_id=? AND {SHOWN}
+                ORDER BY m.quick_hash""",
+            (p["id"],),
+        )
+        if not animals:
+            continue
+        pets.append({
+            "name": p["name"], "species": p["species"], "birthdate": p["birthdate"], "hidden": bool(p["hidden"]),
+            "animals": [{"photo": a["quick_hash"], "box": [round(float(a[k]), 5) for k in ("x1", "y1", "x2", "y2")],
+                         "answer": "yes" if a["vote"] > 0 else "no"} for a in animals],
+        })
     categories = []
     for lab in c.db.q("SELECT * FROM labels WHERE grp != 'sensitive' ORDER BY grp, name"):
         answers = c.db.q(
@@ -70,7 +86,7 @@ def export(c: Context) -> dict[str, Any]:
     return {
         "format": FORMAT, "version": VERSION, "exported": datetime.now().isoformat(timespec="seconds"),
         "about": "RecPro names and answers. Photos are identified by content, not by path. Private photos are left out.",
-        "people": people, "categories": categories,
+        "people": people, "pets": pets, "categories": categories,
     }
 
 
@@ -79,6 +95,8 @@ def counts(doc: dict[str, Any]) -> dict[str, int]:
         "people": len(doc.get("people", [])),
         "faces": sum(len(p.get("faces", [])) for p in doc.get("people", [])),
         "photos": sum(len(p.get("photos", [])) for p in doc.get("people", [])),
+        "pets": len(doc.get("pets", [])),
+        "animals": sum(len(p.get("animals", [])) for p in doc.get("pets", [])),
         "categories": len(doc.get("categories", [])),
         "answers": sum(len(x.get("answers", [])) for x in doc.get("categories", [])),
     }
@@ -135,19 +153,37 @@ def import_(c: Context, doc: dict[str, Any]) -> dict[str, int]:
         items += [("face", str(f["photo"]), {"pid": pid, "name": name, "frame": f.get("frame"), "box": f["box"], "answer": f["answer"]})
                   for f in p.get("faces", [])]
         items += [("photo", str(x["photo"]), {"pid": pid, "name": name, "answer": x["answer"]}) for x in p.get("photos", [])]
+    pets = c.services.get("pets")
+    for p in doc.get("pets", []) if pets is not None else []:
+        name = str(p.get("name") or "").strip()
+        if not name:
+            continue
+        found = pets.find_by_name(name)  # type: ignore[attr-defined]
+        if found is not None:
+            pid = int(found["id"])
+            stats["pets_matched"] += 1
+        else:
+            pid = pets.create_person(name)  # type: ignore[attr-defined]
+            stats["pets_added"] += 1
+        c.db.x(
+            "UPDATE people SET species=COALESCE(species, ?), birthdate=COALESCE(birthdate, ?), hidden=MAX(hidden, ?) WHERE id=?",
+            (p.get("species"), p.get("birthdate"), 1 if p.get("hidden") else 0, pid),
+        )
+        items += [("animal", str(a["photo"]), {"pid": pid, "name": name, "box": a["box"], "answer": a["answer"]}) for a in p.get("animals", [])]
     left = _apply(c, items, stats)
     _wait(c, left)
     stats["waiting"] = len(left)
-    if stats["people_added"] or stats["people_matched"]:
+    if stats["people_added"] or stats["people_matched"] or stats["pets_added"] or stats["pets_matched"]:
         people.publish()  # type: ignore[attr-defined]
     c.events.publish("labels.changed", {})
     return dict(stats)
 
 
-def _person(c: Context, d: dict[str, Any]) -> int | None:
-    if c.db.scalar("SELECT 1 FROM people WHERE id=?", (d.get("pid"),)):
+def _person(c: Context, d: dict[str, Any], kind: str = "human") -> int | None:
+    if c.db.scalar("SELECT 1 FROM people WHERE id=? AND kind=?", (d.get("pid"), kind)):
         return int(d["pid"])
-    found = c.services["people"].find_by_name(d.get("name") or "")  # type: ignore[attr-defined]
+    svc = c.services.get("pets" if kind == "pet" else "people")
+    found = svc.find_by_name(d.get("name") or "") if svc is not None else None  # type: ignore[attr-defined]
     return int(found["id"]) if found is not None else None
 
 
@@ -155,6 +191,7 @@ def _apply(c: Context, items: list[tuple[str, str, dict[str, Any]]], stats: Coun
     """Applies what can be applied now; returns what has to wait for photos or faces still to come."""
     from .jobs.deep import DEEP_V
     from .jobs.video import VIDEO_V
+    from .ml.objects import OBJ_V
 
     if not items:
         return []
@@ -165,12 +202,13 @@ def _apply(c: Context, items: list[tuple[str, str, dict[str, Any]]], stats: Coun
     media: dict[str, list[Any]] = defaultdict(list)
     for i in range(0, len(hashes), 900):
         chunk = hashes[i : i + 900]
-        for r in c.db.q(f"SELECT id, quick_hash, kind, deep_v, video_v FROM media WHERE state='active' AND quick_hash IN ({','.join('?' * len(chunk))})", chunk):
+        for r in c.db.q(f"SELECT id, quick_hash, kind, deep_v, video_v, obj_v FROM media WHERE state='active' AND quick_hash IN ({','.join('?' * len(chunk))})", chunk):
             media[r["quick_hash"]].append(r)
     label_ids = {r["key"]: int(r["id"]) for r in c.db.q("SELECT id, key FROM labels")}
     labels: dict[int, dict[str, set[int]]] = defaultdict(lambda: {"yes": set(), "no": set()})
     faces: dict[int, dict[str, set[int]]] = defaultdict(lambda: {"yes": set(), "no": set()})
     photos: dict[int, dict[str, set[int]]] = defaultdict(lambda: {"yes": set(), "no": set()})
+    animals: dict[int, dict[str, set[int]]] = defaultdict(lambda: {"yes": set(), "no": set()})
     left: list[tuple[str, str, dict[str, Any]]] = []
     for h, its in by_hash.items():
         ms = media.get(h)
@@ -185,6 +223,24 @@ def _apply(c: Context, items: list[tuple[str, str, dict[str, Any]]], stats: Coun
                     stats["categories_unknown"] += 1
                     continue
                 labels[lid][side].update(int(m["id"]) for m in ms)
+                continue
+            if kind == "animal":
+                pid = _person(c, d, "pet")
+                if pid is None:
+                    stats["pets_gone"] += 1
+                    continue
+                best, best_iou = None, 0.0
+                for m in ms:
+                    for a in c.db.q("SELECT id, x1, y1, x2, y2 FROM animals WHERE media_id=? AND frame_ms IS NULL", (m["id"],)):
+                        iou = _iou([a["x1"], a["y1"], a["x2"], a["y2"]], d["box"])
+                        if iou > best_iou:
+                            best, best_iou = int(a["id"]), iou
+                if best is not None and best_iou >= IOU_MIN:
+                    animals[pid][side].add(best)
+                elif any(m["kind"] == "image" and m["obj_v"] >= OBJ_V for m in ms) and c.services["ml"].has("pets"):  # type: ignore[attr-defined]
+                    stats["animals_unmatched"] += 1  # the photo's animals have been looked for: this one isn't there
+                else:
+                    left.append((kind, h, d))
                 continue
             pid = _person(c, d)
             if pid is None:
@@ -238,6 +294,21 @@ def _apply(c: Context, items: list[tuple[str, str, dict[str, Any]]], stats: Coun
         if yes or no:
             people.answer(pid, yes, no)  # type: ignore[attr-defined]
             stats["faces_applied"] += len(yes) + len(no)
+    pets = c.services.get("pets")
+    for pid, s in animals.items():
+        aids = sorted(s["yes"] | s["no"])
+        taken = set()
+        for i in range(0, len(aids), 900):
+            chunk = aids[i : i + 900]
+            q = ",".join("?" * len(chunk))
+            taken |= {int(r["animal_id"]) for r in c.db.q(f"SELECT animal_id FROM animal_votes WHERE person_id=? AND animal_id IN ({q})", [pid, *chunk])}
+            # an animal you've confirmed as another pet here stays theirs
+            taken |= {int(r["id"]) for r in c.db.q(f"SELECT id FROM animals WHERE state='confirmed' AND person_id IS NOT NULL AND person_id!=? AND id IN ({q})", [pid, *chunk])}
+        yes, no = sorted(s["yes"] - taken), sorted(s["no"] - s["yes"] - taken)
+        stats["kept_yours"] += len(taken)
+        if (yes or no) and pets is not None:
+            pets.answer(pid, yes, no)  # type: ignore[attr-defined]
+            stats["animals_applied"] += len(yes) + len(no)
     if photos:
         from .review.hidden import answer as hidden_answer
 

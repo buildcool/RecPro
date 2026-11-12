@@ -12,6 +12,7 @@ from recpro.api import routes_search
 from recpro.bootstrap import build_context
 from recpro.config import Paths
 from recpro.jobs.deep import DEEP_V
+from recpro.ml.objects import OBJ_V
 from recpro.review.hidden import answer as hidden_answer
 from tests.conftest import add_and_index, wait_for
 from tests.test_cleanup import photo
@@ -58,7 +59,7 @@ def test_names_and_answers_go_to_another_pc(ctx, tmp_path):
     ctx.db.x("UPDATE media SET sens_state='private' WHERE id=?", (a["IMG_3.jpg"],))
     tax.answer(travel, [a["IMG_3.jpg"]], [])  # about a private photo: stays on this PC
     doc = labels_io.export(ctx)
-    assert labels_io.counts(doc) == {"people": 1, "faces": 2, "photos": 1, "categories": 1, "answers": 2}
+    assert labels_io.counts(doc) == {"people": 1, "faces": 2, "photos": 1, "pets": 0, "animals": 0, "categories": 1, "answers": 2}
     text = json.dumps(doc)
     assert "IMG_0" not in text and tmp_path.name not in text  # photos by content, never by where they are
 
@@ -89,6 +90,55 @@ def test_names_and_answers_go_to_another_pc(ctx, tmp_path):
         assert labels_io.waiting(c2) == 0
         again = labels_io.import_(c2, doc)  # importing twice changes nothing
         assert again.get("faces_applied", 0) == 0 and again.get("answers_applied", 0) == 0 and again["people_matched"] == 1
+    finally:
+        c2.stop()
+
+
+def add_animal(ctx, media_id, box, seed, species="dog"):
+    """An animal as the objects pass would store it (synthetic look)."""
+    rng = np.random.default_rng(seed)
+    emb = rng.normal(size=768)
+    emb /= np.linalg.norm(emb)
+    aid = ctx.db.x(
+        "INSERT INTO animals(media_id, species, x1, y1, x2, y2, det_score, quality, embedding, state) VALUES(?,?,?,?,?,?,.9,.9,?,'none')",
+        (media_id, species, *box, emb.astype(np.float16).tobytes()),
+    ).lastrowid
+    ctx.db.x("UPDATE media SET obj_v=? WHERE id=?", (OBJ_V, media_id))
+    ctx.services["pets"].index.load_rows(ctx.db.q("SELECT id, media_id, quality, embedding FROM animals"))
+    return aid
+
+
+def test_pets_go_to_another_pc_too(ctx, tmp_path):
+    photos(tmp_path / "A", n=2)
+    add_and_index(ctx, tmp_path / "A")
+    a = ids(ctx)
+    pets = ctx.services["pets"]
+    d1 = add_animal(ctx, a["IMG_0.jpg"], BOX1, 1)
+    d2 = add_animal(ctx, a["IMG_1.jpg"], BOX2, 2)
+    pid = pets.create_person("Bruno", [d1])
+    pets.answer(pid, [], [d2])
+    doc = labels_io.export(ctx)
+    assert (labels_io.counts(doc)["pets"], labels_io.counts(doc)["animals"]) == (1, 2)
+    assert doc["pets"][0]["name"] == "Bruno" and doc["pets"][0]["species"] == "dog" and doc["people"] == []
+
+    shutil.copytree(tmp_path / "A", tmp_path / "B")
+    c2 = build_context(Paths(tmp_path / "data2"), "t2")
+    try:
+        res = labels_io.import_(c2, doc)
+        assert res["pets_added"] == 1 and res["waiting"] == 2
+        add_and_index(c2, tmp_path / "B")
+        b = ids(c2)
+        labels_io.apply_waiting(c2, list(b.values()))
+        assert labels_io.waiting(c2) == 2  # the photos are read; their animals aren't looked for yet
+        g1 = add_animal(c2, b["IMG_0.jpg"], BOX1, 3)
+        g2 = add_animal(c2, b["IMG_1.jpg"], (0.5001, 0.2, 0.7, 0.5), 4)  # found again, a hair apart
+        labels_io.apply_waiting(c2, [b["IMG_0.jpg"], b["IMG_1.jpg"]])
+        pid2 = c2.db.scalar("SELECT id FROM people WHERE name='Bruno'")
+        assert tuple(c2.db.q1("SELECT kind, species FROM people WHERE id=?", (pid2,))) == ("pet", "dog")
+        assert c2.db.scalar("SELECT person_id FROM animals WHERE id=?", (g1,)) == pid2
+        assert c2.db.scalar("SELECT vote FROM animal_votes WHERE animal_id=? AND person_id=?", (g2, pid2)) == -1
+        assert labels_io.waiting(c2) == 0
+        assert c2.db.scalar("SELECT COUNT(*) FROM people WHERE kind='human'") == 0, "a pet never comes back as a person"
     finally:
         c2.stop()
 

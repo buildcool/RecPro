@@ -58,7 +58,10 @@ def search_people(
         if kind not in seen:
             s_ = c.services["pets" if kind == "pet" else "people"]
             extra = ", f.species" if kind == "pet" else ""
-            rows_ = db.q(f"SELECT f.id, f.media_id, f.person_id, f.state, f.quality{extra} FROM {s_.T} f JOIN media m ON m.id=f.media_id WHERE {where}", params)  # type: ignore[attr-defined]
+            rows_ = db.q(  # an animal's face isn't a person's
+                f"SELECT f.id, f.media_id, f.person_id, f.state, f.quality{extra} FROM {s_.T} f JOIN media m ON m.id=f.media_id WHERE {where} AND f.state != 'animal'",  # type: ignore[attr-defined]
+                params,
+            )
             ids_ = [r["id"] for r in rows_]
             vec = s_.index.vectors(ids_) if ids_ else np.zeros((0, s_.DIM), np.float32)  # type: ignore[attr-defined]
             sure_, check_ = s_.thresholds()  # type: ignore[attr-defined]

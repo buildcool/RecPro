@@ -74,6 +74,8 @@ class DeepStage:
                 emotions.append(emo.predict(img, [f.box for f in faces]))
             except Exception:
                 emotions.append([])
+        from .objects import mark_animal_faces
+
         new_ids: list[int] = []
         removed_ids: list[int] = []
         with self.ctx.db.tx() as c:
@@ -122,7 +124,10 @@ class DeepStage:
                     c.execute("DELETE FROM faces WHERE id=?", (o["id"],))
                     removed_ids.append(o["id"])
                 c.execute("UPDATE media SET deep_v=?, face_count=? WHERE id=?", (DEEP_V, len(inserted), row["id"]))
-                new_ids += [fid for fid, _ in inserted]
+                # a dog's face isn't a person's: the objects pass may have found the dog already
+                animal = set(mark_animal_faces(c, row["id"]))
+                removed_ids += sorted(animal)
+                new_ids += [fid for fid, _ in inserted if fid not in animal]
         people = self.ctx.services.get("people")
         if people is not None and removed_ids:
             people.index.remove(removed_ids)  # type: ignore[attr-defined]

@@ -54,6 +54,43 @@ _CAT_CLASSES = {k: {CLASS[n] for n in v} for k, v in DET_CATEGORIES.items()}
 FULL_AREA = {"object": 0.01, "pet": 0.002}
 
 
+# Animals with a face the face detector can take for a person's (a dog looking at the camera)
+ANIMALS_WITH_FACES = {CLASS[n] for n in (
+    "Dog", "Cat", "Horse", "Cow", "Sheep", "Rabbit", "Bear", "Monkey", "Pig", "Deer", "Lion", "Elephant", "Zebra",
+    "Giraffe", "Camel", "Donkey", "Yak", "Antelope", "Seal", "Parrot", "Wild Bird",
+)}
+ANIMAL_MIN, PERSON_MIN = 0.5, 0.4
+
+
+def mark_animal_faces(c, media_id: int) -> list[int]:
+    """A photo's faces that are an animal's: inside an animal the detector found and on no person.
+    They become state 'animal' with quality 0, so they're never grouped, matched or counted as
+    people. Your own answers are left alone. Inside the caller's transaction; returns their ids."""
+    objs = c.execute(
+        "SELECT cls, x1, y1, x2, y2 FROM objects WHERE media_id=? AND frame_ms IS NULL AND ((cls=? AND score >= ?) OR score >= ?)",
+        (media_id, CLASS["Person"], PERSON_MIN, ANIMAL_MIN),
+    ).fetchall()
+    animals = [o for o in objs if o["cls"] in ANIMALS_WITH_FACES]
+    if not animals:
+        return []
+    people = [o for o in objs if o["cls"] == CLASS["Person"]]
+
+    def on(cx: float, cy: float, boxes) -> bool:
+        return any(b["x1"] <= cx <= b["x2"] and b["y1"] <= cy <= b["y2"] for b in boxes)
+
+    out = []
+    for f in c.execute(
+        "SELECT id, x1, y1, x2, y2 FROM faces WHERE media_id=? AND frame_ms IS NULL AND state NOT IN ('confirmed','animal')", (media_id,)
+    ).fetchall():
+        cx, cy = (f["x1"] + f["x2"]) / 2, (f["y1"] + f["y2"]) / 2
+        if on(cx, cy, animals) and not on(cx, cy, people):
+            out.append(int(f["id"]))
+    if out:
+        c.executemany("UPDATE faces SET person_id=NULL, state='animal', score=NULL, quality=0 WHERE id=?", [(i,) for i in out])
+        c.execute("UPDATE media SET face_count=(SELECT COUNT(*) FROM faces WHERE media_id=? AND state!='animal') WHERE id=?", (media_id, media_id))
+    return out
+
+
 def category_scores(objs: list[Obj]) -> dict[str, float]:
     """The detector's score for each category it backs up (0 when it saw nothing of it)."""
     out: dict[str, float] = {}
@@ -129,6 +166,7 @@ class ObjectsStage:
 
         new_ids: list[int] = []
         removed: list[int] = []
+        animal_faces: list[int] = []
         records: list[tuple[int, str, dict[str, float], str]] = []
         with self.ctx.db.tx() as c:
             for k, (row, img, objs) in enumerate(zip(rows, imgs, found)):
@@ -143,6 +181,7 @@ class ObjectsStage:
                 )
                 for key, v in category_scores(objs).items():
                     records.append((mid, key, {"det": v}, key.split(".")[0]))
+                animal_faces += mark_animal_faces(c, mid)
                 if look is not None:
                     ins, gone = self._store_animals(c, mid, animals.get(k, []))
                     new_ids += ins
@@ -151,6 +190,10 @@ class ObjectsStage:
         labels = self.ctx.services.get("labels")
         if labels is not None and records:
             labels.record_many(records)  # type: ignore[attr-defined]
+        people = self.ctx.services.get("people")
+        if people is not None and animal_faces:
+            people.index.remove(animal_faces)  # type: ignore[attr-defined]
+            people.publish()  # type: ignore[attr-defined]
         pets = self.ctx.services.get("pets")
         if pets is not None:
             if removed:
