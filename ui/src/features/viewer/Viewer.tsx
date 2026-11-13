@@ -8,9 +8,9 @@ import { bridge } from '../../lib/bridge';
 import { bytes, clock, dateTime, duration } from '../../lib/format';
 import { useSelection } from '../../lib/selection';
 import type { MediaDetail } from '../../lib/types';
-import { speciesName } from '../../lib/people';
 import { useCopyFlow } from '../ops/CopyFlow';
 import { useViewer } from './viewerStore';
+import { WhoInPhoto } from './WhoInPhoto';
 
 const SRC_LABEL: Record<string, string> = {
   exif: 'from the camera',
@@ -42,6 +42,8 @@ export function Viewer() {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA') return; // typing a name
       if (e.key === 'Escape') close();
       else if (e.key === 'ArrowRight') go(1);
       else if (e.key === 'ArrowLeft') go(-1);
@@ -175,34 +177,7 @@ export function Viewer() {
           ) : (
             d.gps_lat != null && <InfoRow label="Place" value={`${d.gps_lat.toFixed(4)}, ${d.gps_lon?.toFixed(4)}`} icon={<MapPin className="size-3.5" />} />
           )}
-          {d.faces.length > 0 && (
-            <div className="mt-5">
-              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-white/50">People</div>
-              <div className="flex flex-wrap gap-2">
-                {d.faces.map((f) => (
-                  <span key={f.id} className="flex items-center gap-2 rounded-full bg-white/10 py-1 pl-1 pr-3 text-xs">
-                    <img src={mediaUrl(`media/face/${f.id}?size=64`)} alt="" className="size-6 rounded-full object-cover" />
-                    {f.person_name ?? 'Unnamed'}
-                    {f.state === 'suggested' && <span className="text-[#e5a94a]">?</span>}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          {(d.animals?.length ?? 0) > 0 && (
-            <div className="mt-5">
-              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-white/50">Pets</div>
-              <div className="flex flex-wrap gap-2">
-                {d.animals!.map((a) => (
-                  <span key={a.id} className="flex items-center gap-2 rounded-full bg-white/10 py-1 pl-1 pr-3 text-xs">
-                    <img src={mediaUrl(`media/animal/${a.id}?size=64`)} alt="" className="size-6 rounded-full object-cover" />
-                    {a.person_name ?? speciesName(a.species)}
-                    {a.state === 'suggested' && <span className="text-[#e5a94a]">?</span>}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          <WhoInPhoto mediaId={id} faces={d.faces} animals={d.animals ?? []} />
           {(d.things?.length ?? 0) > 0 && (
             <div className="mt-5">
               <div className="mb-2 text-xs font-medium uppercase tracking-wide text-white/50">Things</div>

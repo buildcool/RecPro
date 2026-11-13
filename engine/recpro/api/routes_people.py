@@ -199,19 +199,36 @@ def person_faces(pid: int, state: str | None = None, limit: int = 200, c: Contex
     return [dict(r) for r in c.db.q(q, params)]
 
 
+def _tally(c: Context, kind: str, pid: int) -> dict[str, int]:
+    """After an answer: the photos the person (or pet) is in now, and how many wait in Review."""
+    t = TABLE[kind]
+    return {
+        "count": int(c.db.scalar(f"SELECT COUNT(DISTINCT media_id) FROM {t} WHERE person_id=? AND state IN {MEMBER_SQL}", (pid,), default=0)),
+        "to_check": int(c.db.scalar(f"SELECT COUNT(*) FROM {t} WHERE person_id=? AND state='suggested'", (pid,), default=0)),
+    }
+
+
 @router.post("/api/faces/{face_id}/assign")
 def assign_face(face_id: int, body: AssignBody, c: Context = Depends(ctx)) -> dict[str, Any]:
+    """This face is that person (or a new person with this name)."""
     svc = _svc(c)
+    old = c.db.q1("SELECT person_id, state FROM faces WHERE id=?", (face_id,))
+    if old is None:
+        raise HTTPException(404, "Not found")
     pid = body.person_id
     if pid is None:
         if not body.name or not body.name.strip():
             raise HTTPException(400, "Choose a person or enter a name.")
         existing = svc.find_by_name(body.name)
+        new = existing is None
         pid = existing["id"] if existing else svc.create_person(body.name)
-    old = c.db.q1("SELECT person_id, state FROM faces WHERE id=?", (face_id,))
-    if old and old["person_id"] and old["person_id"] != pid and old["state"] in ("confirmed", "auto", "suggested"):
+    elif kind_of(c, pid) != "human":
+        raise HTTPException(400, "That's a pet, not a person.")
+    else:
+        new = False
+    if old["person_id"] and old["person_id"] != pid and old["state"] in ("confirmed", "auto", "suggested"):
         svc.answer(old["person_id"], [], [face_id])
-    return {"person_id": pid, **svc.answer(pid, [face_id], [])}
+    return {"person_id": pid, **svc.answer(pid, [face_id], []), "new": new, **_tally(c, "human", pid)}
 
 
 @router.post("/api/faces/{face_id}/not")
@@ -236,13 +253,14 @@ def assign_animal(animal_id: int, body: AssignBody, c: Context = Depends(ctx)) -
         if existing is None:
             if old["person_id"] and old["state"] in ("confirmed", "auto", "suggested"):
                 svc.answer(old["person_id"], [], [animal_id])
-            return {"person_id": svc.create_person(body.name, [animal_id]), "settled": 0, "remaining": 0}
+            pid = svc.create_person(body.name, [animal_id])  # finds its other photos as it goes
+            return {"person_id": pid, "settled": 0, "remaining": 0, "new": True, **_tally(c, "pet", pid)}
         pid = existing["id"]
     elif kind_of(c, pid) != "pet":
         raise HTTPException(400, "That's a person, not a pet.")
     if old["person_id"] and old["person_id"] != pid and old["state"] in ("confirmed", "auto", "suggested"):
         svc.answer(old["person_id"], [], [animal_id])
-    return {"person_id": pid, **svc.answer(pid, [animal_id], [])}
+    return {"person_id": pid, **svc.answer(pid, [animal_id], []), "new": False, **_tally(c, "pet", pid)}
 
 
 @router.post("/api/animals/{animal_id}/not")

@@ -152,6 +152,17 @@ def test_pets_through_the_api_search_and_find(ctx):
     assert ctx.db.scalar("SELECT person_id FROM animals WHERE id=?", (victim,)) == bruno
     r = client.post(f"/api/animals/{victim}/assign", json={"name": "Sheru"}, headers=H).json()
     assert tuple(ctx.db.q1("SELECT name, kind, species FROM people WHERE id=?", (r["person_id"],))) == ("Sheru", "pet", "dog")
+    assert (r["new"], r["count"]) == (True, 1), "naming one photo never takes photos that are another pet's"
+    # named from one photo, a new pet takes along the photos that look like it
+    cat = next(a for a, k in truth.items() if k == 2)
+    mia = client.post(f"/api/animals/{cat}/assign", json={"name": "Mia"}, headers=H).json()
+    assert (mia["new"], mia["count"], mia["to_check"]) == (True, 8, 0)
+    back = client.post(f"/api/animals/{victim}/assign", json={"person_id": bruno}, headers=H).json()
+    assert back["new"] is False and back["person_id"] == bruno and ctx.db.scalar("SELECT state FROM animals WHERE id=?", (victim,)) == "confirmed"
+    # a face can't be given to a pet, and an unknown face is an error
+    face = ctx.db.scalar("SELECT id FROM faces LIMIT 1")
+    assert client.post(f"/api/faces/{face}/assign", json={"person_id": bruno}, headers=H).status_code == 400
+    assert client.post("/api/faces/999999/assign", json={"name": "X"}, headers=H).status_code == 404
     assert client.get("/api/review/faces?kind=pet", headers=H).json()["kind"] == "pet"
     counts = client.get("/api/review/counts", headers=H).json()
     assert {"pets", "pet_name", "pet_merge", "faces"} <= set(counts)
