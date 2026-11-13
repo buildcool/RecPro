@@ -45,6 +45,7 @@ All notable changes to RecPro. Versions follow [Semantic Versioning](https://sem
 - Videos: faces are followed through the whole video (1 frame a second) and kept as one face per person with when they're on screen; private content, categories and scenes are found frame by frame, with their time ranges. Private content anywhere in a video makes it private.
 - Video moments in search: Find and search say "at 0:14" on a video and open it where the person, category, scene or words are; age, gender and expression filters show where the matching faces are.
 - Viewer: lanes under a video show who and what is on screen when; click a stretch to jump there.
+- Viewer: name or correct anyone in a photo. Click a face or a pet in the details to name it, confirm RecPro's guess or say it isn't them, with Undo. Naming one photo finds the others, and a pet with too few photos to be grouped can be named this way.
 - Playable copies: a video the player can't open (HEVC without a decoder, AVI, old codecs) gets an H.264 copy on demand, on the NVIDIA encoder when there is one.
 - Speech search: Whisper large-v3 turbo transcribes what is said in videos (on this PC, on the processor); search finds the words and opens the video where they're said, and the viewer lists the transcript with times.
 - Faces that aren't visible: Review → *Face hidden?* suggests photos from the same outing where someone may be with their face turned away or too unclear; a yes counts in Find.
